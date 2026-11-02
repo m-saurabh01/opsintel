@@ -188,6 +188,9 @@ export default function App() {
 
   const ai = health?.ai
   const ThemeIcon = theme === 'dark' ? Sun : Moon
+  const searchModes = health?.features?.metadata_search
+    ? [...MODES, { value: 'metadata', label: 'Metadata' }]
+    : MODES
   const aiLabel = health === undefined ? 'Checking…' : !health ? 'API unreachable' : !ai?.enabled ? 'AI disabled'
     : ai.reachable && ai.model_present ? `AI ready (${ai.model})` : 'AI unavailable'
 
@@ -347,7 +350,7 @@ export default function App() {
                     <input type="search" value={draft} onChange={(e) => setDraft(e.target.value)}
                       placeholder="Search across files, repositories and documents…" aria-label="Search workspace" />
                     <select value={state.mode} onChange={(e) => update({ mode: e.target.value })} aria-label="Search mode">
-                      {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                      {searchModes.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                     </select>
                     <button type="submit"><Search size={15} /> Search</button>
                   </form>
@@ -429,7 +432,7 @@ export default function App() {
                 <div className="search-mode-control">
                   <label htmlFor="mode-select">Search mode</label>
                   <select id="mode-select" value={state.mode} onChange={(e) => update({ mode: e.target.value, page: 1 })}>
-                    {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    {searchModes.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </div>
               </div>

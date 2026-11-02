@@ -80,7 +80,8 @@ async def health(request: Request) -> dict:
     else:
         ai_consumer = {"enabled": True, "running": True}
     return {"version": __version__, "db": db, "worker": worker, "ai_queue": ai_queue,
-            "ai": ai, "ai_consumer": ai_consumer, "search_available": db["ok"]}
+        "features": {"metadata_search": s.metadata_search_enabled},
+        "ai": ai, "ai_consumer": ai_consumer, "search_available": db["ok"]}
 
 
 @router.post("/webhooks/gitea")
@@ -270,7 +271,7 @@ def search_endpoint(
     request: Request,
     conn: Conn,
     q: Annotated[str, Query(min_length=1, max_length=500)],
-    mode: Annotated[str, Query(pattern="^(fulltext|phrase|exact)$")] = "fulltext",
+    mode: Annotated[str, Query(pattern="^(fulltext|phrase|exact|metadata)$")] = "fulltext",
     repo: Annotated[list[int] | None, Query()] = None,
     branch: str | None = None,
     type: Annotated[list[str] | None, Query()] = None,  # noqa: A002
@@ -281,6 +282,27 @@ def search_endpoint(
     page_size: Annotated[int, Query(ge=1)] = 20,
 ) -> dict:
     s: Settings = request.app.state.settings
+    if mode == "metadata":
+        if not s.metadata_search_enabled:
+            raise HTTPException(503, "metadata search is disabled")
+        if not s.metadata_search_path.is_file():
+            raise HTTPException(503, "metadata shadow index is missing; run `opsintel experimental metadata-index`")
+        from opsintel.experiments.metadata_search import MetadataShadowIndex
+
+        shadow = MetadataShadowIndex(s.metadata_search_path)
+        try:
+            result = shadow.search(
+                q, mode="fulltext", repo_ids=repo, branch=branch, file_types=type, languages=lang,
+                path_prefix=path, page=page, page_size=min(page_size, s.search_page_size_max),
+            )
+            result["mode"] = "metadata"
+            return result
+        except InvalidQuery as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except sqlite3.OperationalError as exc:
+            raise HTTPException(503, f"metadata shadow index is unavailable: {exc}") from exc
+        finally:
+            shadow.close()
     req = SearchRequest(
         q=q, mode=mode, repo_ids=repo, branch=branch, file_types=type, languages=lang, path_prefix=path,
         case_sensitive=case_sensitive, page=page, page_size=min(page_size, s.search_page_size_max),

@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     ai_cache_ttl_s: int = 900
     ai_cache_max_entries: int = 500
 
+    metadata_search_enabled: bool = False
+    metadata_search_db_path: Path | None = None
+
     worker_min_free_ram_mb: int = 1500
     worker_lease_s: int = 120
     worker_idle_sleep_s: float = 2.0
@@ -67,6 +70,10 @@ class Settings(BaseSettings):
     @property
     def mirrors_dir(self) -> Path:
         return self.opsintel_data_dir / "mirrors"
+
+    @property
+    def metadata_search_path(self) -> Path:
+        return self.metadata_search_db_path or self.opsintel_data_dir / "experiments" / "metadata-shadow.sqlite3"
 
     @property
     def db_path(self) -> Path:

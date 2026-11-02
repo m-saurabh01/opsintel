@@ -261,9 +261,8 @@ experimental_app = typer.Typer(no_args_is_help=True, help="Isolated experimental
 app.add_typer(experimental_app, name="experimental")
 
 
-def _shadow_path(database: Path | None) -> Path:
-    settings = get_settings()
-    return (database or settings.opsintel_data_dir / "experiments" / "metadata-shadow.sqlite3").expanduser()
+def _shadow_path(settings, database: Path | None) -> Path:
+    return (database or settings.metadata_search_path).expanduser()
 
 
 @experimental_app.command("metadata-index")
@@ -283,7 +282,7 @@ def metadata_index(
             if row is None:
                 raise typer.BadParameter(f"unknown enabled repository '{repo}'")
             repo_id = row["id"]
-        shadow = MetadataShadowIndex(_shadow_path(database))
+        shadow = MetadataShadowIndex(_shadow_path(settings, database))
         try:
             typer.echo(json.dumps(shadow.refresh(conn, repo_id), indent=2))
         finally:
@@ -312,7 +311,7 @@ def metadata_search(
             if row is None:
                 raise typer.BadParameter(f"unknown enabled repository '{repo}'")
             repo_id = row["id"]
-        shadow = MetadataShadowIndex(_shadow_path(database))
+        shadow = MetadataShadowIndex(_shadow_path(settings, database))
         try:
             result = shadow.search(query, mode=mode, repo_id=repo_id, limit=limit)
         finally:

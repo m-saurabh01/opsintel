@@ -73,18 +73,31 @@ def retrieve(conn, question: str, repo_ids: list[int] | None, settings: Settings
     queries = [" ".join(terms[:5]), *terms]
     scores: dict[int, float] = defaultdict(float)
     hit_by_id: dict[int, dict] = {}
-    for query in dict.fromkeys(queries):
-        try:
-            result = search(conn, SearchRequest(q=query, repo_ids=repo_ids, page_size=settings.ai_retrieval_top_k))
-        except ValueError:
-            continue
-        for rank, hit in enumerate(result["results"], start=1):
-            chunk_id = hit["chunk_id"]
-            scores[chunk_id] += 1 / (60 + rank)
-            previous = hit_by_id.get(chunk_id)
-            if previous is None or (-hit["match_count"], hit["score"]) > \
-                    (-previous["match_count"], previous["score"]):
-                hit_by_id[chunk_id] = hit
+    shadow = None
+    if settings.metadata_search_enabled:
+        from opsintel.experiments.metadata_search import MetadataShadowIndex
+
+        if not settings.metadata_search_path.is_file():
+            raise RuntimeError("metadata shadow index is missing; run `opsintel experimental metadata-index`")
+        shadow = MetadataShadowIndex(settings.metadata_search_path)
+    try:
+        for query in dict.fromkeys(queries):
+            try:
+                result = shadow.search(query, repo_ids=repo_ids, page_size=settings.ai_retrieval_top_k) \
+                    if shadow else search(conn, SearchRequest(q=query, repo_ids=repo_ids,
+                                                             page_size=settings.ai_retrieval_top_k))
+            except ValueError:
+                continue
+            for rank, hit in enumerate(result["results"], start=1):
+                chunk_id = hit["chunk_id"]
+                scores[chunk_id] += 1 / (60 + rank)
+                previous = hit_by_id.get(chunk_id)
+                if previous is None or (-hit["match_count"], hit["score"]) > \
+                        (-previous["match_count"], previous["score"]):
+                    hit_by_id[chunk_id] = hit
+    finally:
+        if shadow:
+            shadow.close()
     ranked = sorted(scores, key=scores.get, reverse=True)[:settings.ai_retrieval_top_k]
     if not ranked:
         return []
