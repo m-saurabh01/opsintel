@@ -1,0 +1,53 @@
+[project]
+name = "opsintel"
+version = "0.1.0"
+description = "Offline-first Gitea workspace search and knowledge platform"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic-settings>=2.4",
+    "typer>=0.12",
+    "httpx>=0.27",
+    "psutil>=6.0",
+    "charset-normalizer>=3.3",
+    "xlrd>=2.0",
+    "pymupdf>=1.24,<2",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "odfpy>=1.4",
+]
+
+[project.scripts]
+opsintel = "opsintel.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+    "xlwt>=1.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["opsintel"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: requires a running Gitea (set OPSINTEL_LIVE_GITEA_REPO)"]
+filterwarnings = ["ignore:builtin type Swig:DeprecationWarning", "ignore:builtin type swigvarlink:DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["S101", "S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106"]
+"tests/test_ai_api.py" = ["S104"]

@@ -1,0 +1,27 @@
+# Models and local runtime data
+model/
+*.gguf
+backend/data/
+data/
+devtools/gitea/data/
+devtools/gitea/gitea*
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Frontend
+node_modules/
+frontend/dist/
+backend/opsintel/static/
+
+# OS / editors
+.DS_Store
+Thumbs.db

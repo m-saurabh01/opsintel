@@ -1,0 +1,14 @@
+# Primary dev model: Phi-3-mini-4k-instruct (3.8B, Q4) - fits an 8 GB Mac.
+FROM ../../model/Phi-3-mini-4k-instruct-q4.gguf
+TEMPLATE """{{ if .System }}<|system|>
+{{ .System }}<|end|>
+{{ end }}{{ range .Messages }}<|{{ .Role }}|>
+{{ .Content }}<|end|>
+{{ end }}<|assistant|>
+"""
+PARAMETER stop "<|end|>"
+PARAMETER stop "<|user|>"
+PARAMETER stop "<|assistant|>"
+PARAMETER stop "<|endoftext|>"
+PARAMETER num_ctx 4096
+PARAMETER temperature 0.2

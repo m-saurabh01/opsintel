@@ -1,0 +1,11 @@
+# Optional 7B check: Mistral-7B-Instruct v0.1 (Q4_K_M, ~4.4 GB). Close other apps on an 8 GB Mac.
+# Mistral v0.1 has no system role; the system prompt is prepended to the last user turn.
+FROM ../../model/mistral-7b-instruct-v0.1.Q4_K_M.gguf
+TEMPLATE """{{- range $i, $m := .Messages }}{{- if eq $m.Role "user" }}[INST] {{ if and (eq (len (slice $.Messages $i)) 1) $.System }}{{ $.System }}
+
+{{ end }}{{ $m.Content }} [/INST]{{- else if eq $m.Role "assistant" }} {{ $m.Content }}</s>{{- end }}{{- end }}"""
+PARAMETER stop "[INST]"
+PARAMETER stop "[/INST]"
+PARAMETER stop "</s>"
+PARAMETER num_ctx 4096
+PARAMETER temperature 0.2
