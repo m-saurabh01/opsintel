@@ -113,7 +113,7 @@ def search(conn: sqlite3.Connection, req: SearchRequest) -> dict:
         "SELECT c.id AS chunk_id, c.file_id, c.text, c.coord_kind, c.start_line, c.end_line, c.page, c.sheet, "
         "c.row_num, c.section_path, c.extra_json, "
         "f.path, f.file_type, f.language, f.branch, f.commit_sha, f.line_count, f.indexed_at, "
-        f"r.id AS repo_id, r.name AS repo_name, bm25({table}) AS score {base} "  # noqa: S608
+        f"r.id AS repo_id, r.name AS repo_name, r.kind AS repo_kind, bm25({table}) AS score {base} "  # noqa: S608
         "ORDER BY score LIMIT ? OFFSET ?",
         [*args, req.page_size, offset],
     ).fetchall()
@@ -140,7 +140,7 @@ def _result(row: sqlite3.Row, pattern: re.Pattern) -> dict:
     return {
         "chunk_id": row["chunk_id"],
         "file_id": row["file_id"],
-        "repo": {"id": row["repo_id"], "name": row["repo_name"]},
+        "repo": {"id": row["repo_id"], "name": row["repo_name"], "kind": row["repo_kind"]},
         "branch": row["branch"],
         "commit_sha": row["commit_sha"],
         "path": row["path"],

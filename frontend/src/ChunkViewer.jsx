@@ -127,7 +127,7 @@ function SpreadsheetGrid({ data, target, cell }) {
   )
 }
 
-export default function ChunkViewer({ fileId, chunkId, mark, cell, onClose }) {
+export default function ChunkViewer({ fileId, chunkId, mark, cell, onClose, closeLabel = 'Close' }) {
   const [data, setData] = useState(null)
   const [activeSheet, setActiveSheet] = useState('')
   const [error, setError] = useState('')
@@ -170,7 +170,7 @@ export default function ChunkViewer({ fileId, chunkId, mark, cell, onClose }) {
             </div>
           )}
         </div>
-        <button onClick={onClose} title="Close (Esc)">Close</button>
+        <button onClick={onClose} title="Return to previous view (Esc)">{closeLabel}</button>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {data && (

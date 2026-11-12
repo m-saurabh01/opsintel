@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,16 @@ def repo_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def client(settings: Settings):
-    with TestClient(create_app(settings)) as c:
+    with authenticated_client(settings) as c:
+        yield c
+
+
+@contextmanager
+def authenticated_client(settings: Settings):
+    with TestClient(create_app(settings), client=("127.0.0.1", 49152)) as c:
+        response = c.post("/api/auth/bootstrap", json={"username": "test-admin", "password": "test-password-123"})
+        assert response.status_code == 201
+        c.headers.update({"X-CSRF-Token": c.cookies.get("opsintel_csrf", "")})
         yield c
 
 

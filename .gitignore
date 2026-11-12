@@ -16,10 +16,16 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Frontend
 node_modules/
-frontend/dist/
+dist/
+build/
+.vite/
 backend/opsintel/static/
 
 # OS / editors

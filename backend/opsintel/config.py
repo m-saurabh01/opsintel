@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     parse_timeout_s: int = 120
     parse_cache_max_mb: int = 512
     libreoffice_path: str = ""
+    ocr_enabled: bool = False
+    tesseract_path: str = ""
 
     search_page_size_max: int = 100
     viewer_max_lines: int = 2000
@@ -36,19 +38,22 @@ class Settings(BaseSettings):
     ollama_chat_model: str = "opsintel-dev"
     ollama_min_version: str = "0.9.0"
     ai_enabled: bool = True
+    ai_daily_request_limit: int = 20
     ai_max_queue: int = 4
     ai_max_concurrency: int = 1
     ai_num_ctx: int = 4096
     ai_max_tokens: int = 512
     ai_timeout_s: int = 180
     ollama_keep_alive: str = "10m"
-    ai_retrieval_top_k: int = 8
-    ai_context_chars: int = 6000
+    ai_retrieval_top_k: int = 4
+    ai_context_chars: int = 2500
     ai_cache_ttl_s: int = 900
     ai_cache_max_entries: int = 500
 
     metadata_search_enabled: bool = False
     metadata_search_db_path: Path | None = None
+    semantic_search_enabled: bool = False
+    ollama_embed_model: str = ""
 
     worker_min_free_ram_mb: int = 1500
     worker_lease_s: int = 120
@@ -56,10 +61,16 @@ class Settings(BaseSettings):
     worker_resource_wait_s: float = 5.0
 
     gitea_url: str = ""
+    gitea_web_url: str = ""
     gitea_token: SecretStr = SecretStr("")
     gitea_webhook_secret: SecretStr = SecretStr("")
     gitea_poll_interval_s: int = 300
     git_timeout_s: int = 900
+    auth_session_ttl_s: int = 28800
+    auth_allowed_origins: list[str] = Field(default_factory=lambda: [
+        "http://127.0.0.1:5173", "http://localhost:5173",
+    ])
+    local_repo_allowed_roots: list[Path] = Field(default_factory=list)
 
     job_max_attempts: int = 5
     job_backoff_base_s: float = 30.0

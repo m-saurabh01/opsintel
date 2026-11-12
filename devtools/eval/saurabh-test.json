@@ -1,0 +1,463 @@
+{
+  "repo": "saurabh/test",
+  "queries": [
+    {
+      "q": "which settings control the DB2 connection timeout",
+      "expect": [
+        "config/db2.properties",
+        "config/staging.json",
+        "backend/src/main/resources/application.yml",
+        "legacy/run_windows.bat",
+        "docs/runbooks/db2-timeouts.txt"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "how long can a database query run before timing out",
+      "expect": [
+        "config/db2.properties"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "maximum number of database connections in the pool",
+      "expect": [
+        "backend/src/main/resources/application.yml",
+        "config/db2.properties",
+        "docs/manuals/ops-handbook.docx"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "where is the production database host defined",
+      "expect": [
+        "config/db2.properties",
+        "backend/src/main/resources/application.yml"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "staging database settings",
+      "expect": [
+        "config/staging.json"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "which features are switched on in staging",
+      "expect": [
+        "config/staging.json"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "what port does tomcat listen on",
+      "expect": [
+        "config/tomcat-server.xml"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "how long is an authentication token valid",
+      "expect": [
+        "backend/src/main/resources/application.yml",
+        "backend/src/main/java/com/fleet/portal/security/TokenService.java"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "what happens when the nightly job cannot reach the database",
+      "expect": [
+        "logs/forecast-2026-10-27.log",
+        "docs/runbooks/db2-timeouts.txt"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "errors from the nightly forecast job",
+      "expect": [
+        "logs/forecast-2026-10-27.log"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "what to do when jobs fail with SQLCODE -30081",
+      "expect": [
+        "docs/runbooks/db2-timeouts.txt",
+        "logs/forecast-2026-10-27.log"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "who do I escalate database problems to",
+      "expect": [
+        "docs/runbooks/db2-timeouts.txt"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "windows batch script environment settings",
+      "expect": [
+        "legacy/run_windows.bat"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "how do I deploy the application",
+      "expect": [
+        "docs/deployment.md",
+        "scripts/deploy.sh",
+        "docs/manuals/deployment-guide.pdf"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "how to roll back a release",
+      "expect": [
+        "docs/deployment.md",
+        "docs/manuals/deployment-guide.pdf"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "script that restarts the application server",
+      "expect": [
+        "scripts/deploy.sh"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "how do I build the war file",
+      "expect": [
+        "docs/deployment.md"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "verify the service is healthy after deployment",
+      "expect": [
+        "docs/deployment.md"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "prerequisites for installing the portal",
+      "expect": [
+        "docs/deployment.md"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "where is the authorization header validated",
+      "expect": [
+        "backend/src/main/java/com/fleet/portal/security/AuthHeaderFilter.java"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "how does logout revoke a token",
+      "expect": [
+        "backend/src/main/java/com/fleet/portal/auth/LogoutController.java",
+        "backend/src/main/java/com/fleet/portal/security/TokenService.java",
+        "web/js/session.js"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "code that issues a new session token",
+      "expect": [
+        "backend/src/main/java/com/fleet/portal/security/TokenService.java"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "browser code that signs the user out",
+      "expect": [
+        "web/js/session.js"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "where is the logout button wired up",
+      "expect": [
+        "web/js/session.js"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "endpoint that ends a user session",
+      "expect": [
+        "backend/src/main/java/com/fleet/portal/auth/LogoutController.java"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "audit event recorded when a user logs out",
+      "expect": [
+        "backend/src/main/java/com/fleet/portal/auth/LogoutController.java"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "file with tail number",
+      "expect": [
+        "data/aircraft.csv",
+        "data/sheets/fleet-status.xlsx",
+        "db/schema.sql"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "list of aircraft and their operators",
+      "expect": [
+        "data/aircraft.csv",
+        "backend/src/main/java/com/fleet/portal/aircraft/AircraftService.java",
+        "db/schema.sql"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "which aircraft are grounded",
+      "expect": [
+        "data/aircraft.csv",
+        "docs/presentations/fleet-maintenance.pptx",
+        "docs/manuals/ops-handbook.docx"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "database table that stores aircraft",
+      "expect": [
+        "db/schema.sql"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "table for maintenance events",
+      "expect": [
+        "db/schema.sql"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "query that returns tail numbers for an operator",
+      "expect": [
+        "backend/src/main/java/com/fleet/portal/aircraft/AircraftService.java"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "page that shows the aircraft list",
+      "expect": [
+        "web/aircraft-list.jsp"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "spreadsheet of flight counts per aircraft",
+      "expect": [
+        "data/sheets/fleet-status.xlsx"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "legacy spreadsheet of part numbers",
+      "expect": [
+        "data/sheets/parts-legacy.xls"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "hydraulic pump installation date",
+      "expect": [
+        "data/sheets/parts-legacy.xls"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "nightly maintenance forecast export",
+      "expect": [
+        "scripts/maintenance_forecast.py"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "python script that writes a forecast csv",
+      "expect": [
+        "scripts/maintenance_forecast.py"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "slides about fleet maintenance",
+      "expect": [
+        "docs/presentations/fleet-maintenance.pptx"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "which actuator needs to be replaced",
+      "expect": [
+        "docs/presentations/fleet-maintenance.pptx",
+        "docs/manuals/ops-handbook.docx"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "installing the monitoring agent on every node",
+      "expect": [
+        "docs/manuals/ops-handbook.docx"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "what does this repository contain",
+      "expect": [
+        "README.md"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "list of modules in this project",
+      "expect": [
+        "README.md"
+      ],
+      "kind": "natural"
+    },
+    {
+      "q": "validateAuthHeader",
+      "kind": "identifier",
+      "expect": [
+        "backend/src/main/java/com/fleet/portal/security/AuthHeaderFilter.java"
+      ]
+    },
+    {
+      "q": "db2.connection.timeout",
+      "kind": "identifier",
+      "expect": [
+        "config/db2.properties",
+        "docs/runbooks/db2-timeouts.txt"
+      ]
+    },
+    {
+      "q": "SQLCODE=-30081",
+      "kind": "identifier",
+      "expect": [
+        "logs/forecast-2026-10-27.log"
+      ]
+    },
+    {
+      "q": "VT-XYZ",
+      "kind": "identifier",
+      "expect": [
+        "data/aircraft.csv",
+        "data/sheets/fleet-status.xlsx",
+        "docs/manuals/ops-handbook.docx",
+        "docs/presentations/fleet-maintenance.pptx"
+      ]
+    },
+    {
+      "q": "fleet-portal.war",
+      "kind": "identifier",
+      "expect": [
+        "docs/deployment.md",
+        "docs/manuals/deployment-guide.pdf",
+        "scripts/deploy.sh"
+      ]
+    },
+    {
+      "q": "WAR_FILE",
+      "kind": "identifier",
+      "expect": [
+        "scripts/deploy.sh"
+      ]
+    },
+    {
+      "q": "tokenTtlSeconds",
+      "kind": "identifier",
+      "expect": [
+        "backend/src/main/java/com/fleet/portal/security/TokenService.java"
+      ]
+    },
+    {
+      "q": "connectionTimeoutSeconds",
+      "kind": "identifier",
+      "expect": [
+        "config/staging.json"
+      ]
+    },
+    {
+      "q": "restore_previous_war",
+      "kind": "identifier",
+      "expect": [
+        "docs/manuals/deployment-guide.pdf"
+      ]
+    },
+    {
+      "q": "IX_AIRCRAFT_OPERATOR",
+      "kind": "identifier",
+      "expect": [
+        "db/schema.sql"
+      ]
+    },
+    {
+      "q": "DB2_CONNECTION_TIMEOUT",
+      "kind": "identifier",
+      "expect": [
+        "legacy/run_windows.bat"
+      ]
+    },
+    {
+      "q": "maintenanceForecast",
+      "kind": "identifier",
+      "expect": [
+        "config/staging.json"
+      ]
+    },
+    {
+      "q": "forecast_due_events",
+      "kind": "identifier",
+      "expect": [
+        "scripts/maintenance_forecast.py"
+      ]
+    },
+    {
+      "q": "pptx_table_marker",
+      "kind": "identifier",
+      "expect": [
+        "docs/presentations/fleet-maintenance.pptx"
+      ]
+    },
+    {
+      "q": "docx_table_marker",
+      "kind": "identifier",
+      "expect": [
+        "docs/manuals/ops-handbook.docx"
+      ]
+    },
+    {
+      "q": "legacy_xls_marker",
+      "kind": "identifier",
+      "expect": [
+        "data/sheets/parts-legacy.xls"
+      ]
+    },
+    {
+      "q": "token-ttl-seconds",
+      "kind": "identifier",
+      "expect": [
+        "backend/src/main/resources/application.yml"
+      ]
+    },
+    {
+      "q": "db2-prod.internal",
+      "kind": "identifier",
+      "expect": [
+        "backend/src/main/resources/application.yml",
+        "config/db2.properties",
+        "docs/runbooks/db2-timeouts.txt",
+        "logs/forecast-2026-10-27.log"
+      ]
+    }
+  ]
+}

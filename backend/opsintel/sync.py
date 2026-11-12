@@ -84,12 +84,14 @@ class GiteaSyncer:
     """
 
     def __init__(self, conn: sqlite3.Connection, settings: Settings,
-                 checkpoint: Callable[[], None] | None = None):
+                 checkpoint: Callable[[], None] | None = None,
+                 progress: Callable[[dict], None] | None = None):
         self.conn = conn
         self.settings = settings
         self.writer = FileWriter(conn, settings)
         self.excluded = set(settings.excluded_dirs)
         self.checkpoint = checkpoint or (lambda: None)
+        self.progress = progress or (lambda _progress: None)
 
     def mirror(self, repo_id: int) -> Mirror:
         token = self.settings.gitea_token.get_secret_value()
@@ -127,6 +129,7 @@ class GiteaSyncer:
             self.writer.delete_files([r["id"] for r in known.values()])
             stats.deleted = len(known)
             self._finish(repo_id, branch, None, stats, started)
+            self.progress({"phase": "done", "current": 0, "total": 0, "percent": 100})
             return stats
 
         work: list[tuple[PurePosixPath, FileKind, str, int, sqlite3.Row | None]] = []
@@ -138,6 +141,7 @@ class GiteaSyncer:
             if is_excluded(rel, self.excluded):
                 continue
             stats.scanned += 1
+            self.progress({"phase": "scanning", "current": stats.scanned, "total": None, "percent": None})
             seen.add(entry.path)
             kind = classify(rel)
             prev = known.get(entry.path)
@@ -163,16 +167,24 @@ class GiteaSyncer:
         stale = [row["id"] for path, row in known.items() if path not in seen]
         self.writer.delete_files(stale)
         stats.deleted = len(stale)
+        total = len(work)
+        self.progress({"phase": "indexing", "current": 0, "total": total,
+                       "percent": 100 if total == 0 else 0})
 
         with mirror.cat_blobs() as blobs:
-            for rel, kind, sha, size, prev in work:
+            for current, (rel, kind, sha, size, prev) in enumerate(work, start=1):
                 self.checkpoint()
                 if not self.writer.precheck(repo_id, branch, rel, kind, size, None, sha, head, stats):
+                    self.progress({"phase": "indexing", "current": current, "total": total,
+                                   "percent": round(current * 100 / total) if total else 100})
                     continue
                 data = blobs.read(sha)
                 self.writer.index_bytes(repo_id, branch, rel, kind, data, None, sha, head, prev, stats)
+                self.progress({"phase": "indexing", "current": current, "total": total,
+                               "percent": round(current * 100 / total) if total else 100})
 
         self._finish(repo_id, branch, head, stats, started)
+        self.progress({"phase": "done", "current": total, "total": total, "percent": 100})
         return stats
 
     def _finish(self, repo_id: int, branch: str, head: str | None, stats: IndexStats, started: float) -> None:

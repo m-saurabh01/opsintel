@@ -12,6 +12,7 @@ import psutil
 from opsintel import gitops, ollama
 from opsintel.config import Settings
 from opsintel.gitea import GiteaClient, GiteaError
+from opsintel.parsers.pdf import find_tesseract
 from opsintel.parsers.word import find_libreoffice
 
 
@@ -75,6 +76,15 @@ def run_checks(settings: Settings) -> list[Check]:
     soffice = find_libreoffice(settings.libreoffice_path)
     checks.append(Check("libreoffice", "OK" if soffice else "WARN",
                         soffice or "not found; legacy .doc files are recorded as unsupported (set LIBREOFFICE_PATH)"))
+    tesseract = find_tesseract(settings.tesseract_path)
+    if tesseract:
+        detail = f"{tesseract}; OCR {'enabled' if settings.ocr_enabled else 'disabled (set OCR_ENABLED=true)'}"
+        checks.append(Check("tesseract", "OK" if settings.ocr_enabled else "WARN", detail))
+    else:
+        level = "FAIL" if settings.ocr_enabled else "WARN"
+        detail = "not found; set TESSERACT_PATH or add it to PATH" if settings.ocr_enabled \
+            else "not found; optional unless OCR_ENABLED=true"
+        checks.append(Check("tesseract", level, detail))
     try:
         import pymupdf
 

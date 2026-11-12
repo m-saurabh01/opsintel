@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -5,12 +6,15 @@ import signal
 import socket
 import threading
 import time
+from collections.abc import Callable
 
 import psutil
 
 from opsintel import jobs
 from opsintel.config import Settings
 from opsintel.db import connect, migrate
+from opsintel.embeddings import index_embeddings
+from opsintel.hybrid import semantic_available
 from opsintel.indexing import LocalIndexer
 from opsintel.sync import GiteaSyncer
 from opsintel.tasks import PRIORITY_POLL, SYNC_QUEUE, enqueue_repo_sync, get_setting, indexing_paused, set_setting
@@ -92,11 +96,41 @@ class Worker:
 
     def _handle(self, job: jobs.Job) -> dict:
         p = job.payload
+        progress = self._progress_callback(job.id)
         if p.get("type") == "gitea":
-            return GiteaSyncer(self.conn, self.settings, self._checkpoint).sync(p["repo_id"], p["branch"]).__dict__
-        if p.get("type") == "local":
-            return LocalIndexer(self.conn, self.settings, self._checkpoint).index_repo(p["repo_id"]).__dict__
-        raise ValueError(f"unknown job type {p.get('type')!r}")
+            stats = GiteaSyncer(self.conn, self.settings, self._checkpoint, progress).sync(
+                p["repo_id"], p["branch"]).__dict__
+        elif p.get("type") == "local":
+            stats = LocalIndexer(self.conn, self.settings, self._checkpoint, progress).index_repo(
+                p["repo_id"]).__dict__
+        else:
+            raise ValueError(f"unknown job type {p.get('type')!r}")
+        self._embed_new_chunks(p["repo_id"], stats)
+        return stats
+
+    def _progress_callback(self, job_id: int) -> Callable[[dict], None]:
+        last_update = 0.0
+
+        def update(progress: dict) -> None:
+            nonlocal last_update
+            now = time.monotonic()
+            if progress.get("phase") == "done" or now - last_update >= 0.5:
+                jobs.set_progress(self.conn, job_id, progress)
+                last_update = now
+
+        return update
+
+    def _embed_new_chunks(self, repo_id: int, stats: dict) -> None:
+        if not semantic_available(self.settings) or not stats.get("chunks_written"):
+            return
+        try:
+            result = asyncio.run(index_embeddings(
+                self.conn, self.settings.ollama_base_url, self.settings.ollama_embed_model, [repo_id],
+                timeout_s=self.settings.ai_timeout_s,
+            ))
+            stats["embedded"] = result["embedded"]
+        except Exception as exc:  # embeddings are optional; a failure must not fail indexing
+            log.warning("embedding new chunks for repo %s failed: %s", repo_id, exc)
 
     def _checkpoint(self) -> None:
         """Called between files: honours stop/pause requests, memory pressure and keeps the lease alive."""

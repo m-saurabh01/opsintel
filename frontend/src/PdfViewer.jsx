@@ -5,7 +5,7 @@ import { api } from './api.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
-export default function PdfViewer({ fileId, page: initialPage = 1, onClose, onTextView }) {
+export default function PdfViewer({ fileId, page: initialPage = 1, onClose, onTextView, closeLabel = 'Close' }) {
   const canvasRef = useRef(null)
   const hostRef = useRef(null)
   const documentRef = useRef(null)
@@ -117,7 +117,7 @@ export default function PdfViewer({ fileId, page: initialPage = 1, onClose, onTe
           <div className="path">{meta?.path || (loading ? 'Loading PDF…' : 'PDF')}</div>
           <div className="meta">{meta?.repo_name || 'Indexed PDF'}{meta?.branch ? ` @ ${meta.branch}` : ''} · rendered locally</div>
         </div>
-        <button onClick={onClose} title="Close (Esc)">Close</button>
+        <button onClick={onClose} title="Return to previous view (Esc)">{closeLabel}</button>
       </div>
       <div className="pdf-toolbar" aria-label="PDF controls">
         <button title="Previous page" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>

@@ -15,6 +15,7 @@ from opsintel.parsers.base import Chunk, ParseError, Parser, ParseResult
 from opsintel.parsers.cache import ParseCache
 from opsintel.parsers.registry import ParserRegistry
 from opsintel.parsers.sandbox import ParserSandbox
+from opsintel.search_metadata import build_search_metadata
 
 log = logging.getLogger(__name__)
 
@@ -151,11 +152,20 @@ class FileWriter:
             file_id = self._upsert(repo_id, branch, rel, file_type, kind.language, len(data), mtime_ns,
                                    content_hash, commit_sha, "indexed", reason, parser_sig, result, 0)
             self.conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
+            chunk_rows = []
+            for chunk in chunks:
+                extra_json = json.dumps(chunk.extra) if chunk.extra else None
+                search_metadata = build_search_metadata(
+                    chunk.text, chunk.sheet, chunk.section_path, chunk.key_path, extra_json,
+                )
+                chunk_rows.append((file_id, chunk.ordinal, chunk.text, chunk.coord_kind, chunk.start_line,
+                                   chunk.end_line, chunk.page, chunk.sheet, chunk.cell_ref, chunk.row_num,
+                                   chunk.section_path, chunk.key_path, extra_json, search_metadata))
             self.conn.executemany(
                 "INSERT INTO chunks(file_id, ordinal, text, coord_kind, start_line, end_line, page, sheet, cell_ref, "
-                "row_num, section_path, key_path, extra_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [(file_id, c.ordinal, c.text, c.coord_kind, c.start_line, c.end_line, c.page, c.sheet, c.cell_ref,
-                  c.row_num, c.section_path, c.key_path, json.dumps(c.extra) if c.extra else None) for c in chunks],
+                "row_num, section_path, key_path, extra_json, search_metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                chunk_rows,
             )
         stats.indexed += 1
         stats.chunks_written += len(chunks)
@@ -203,12 +213,13 @@ class LocalIndexer:
     """Incrementally indexes a directory tree. Only new or changed files are parsed."""
 
     def __init__(self, conn: sqlite3.Connection, settings: Settings,
-                 checkpoint: Callable[[], None] | None = None):
+                 checkpoint: Callable[[], None] | None = None, progress: Callable[[dict], None] | None = None):
         self.conn = conn
         self.settings = settings
         self.writer = FileWriter(conn, settings)
         self.excluded = set(settings.excluded_dirs)
         self.checkpoint = checkpoint or (lambda: None)
+        self.progress = progress or (lambda _progress: None)
 
     def index_repo(self, repo_id: int, branch: str = "") -> IndexStats:
         try:
@@ -227,6 +238,11 @@ class LocalIndexer:
         stats = IndexStats()
         known = self.writer.load_known(repo_id, branch)
         seen: set[str] = set()
+        self.progress({"phase": "counting", "current": 0, "total": 0, "percent": None})
+        total = sum(1 for _ in self._walk(root))
+        self.progress({"phase": "indexing", "current": 0, "total": total,
+                       "percent": 100 if total == 0 else 0})
+        completed = 0
 
         for abs_path, rel in self._walk(root):
             self.checkpoint()
@@ -239,12 +255,17 @@ class LocalIndexer:
                 self.writer.record(repo_id, branch, rel, FileKind("unknown", None), 0, None, None, None, "failed",
                                    f"read error: {exc}")
                 stats.failed += 1
+            finally:
+                completed += 1
+                self.progress({"phase": "indexing", "current": completed, "total": total,
+                               "percent": round(completed * 100 / total) if total else 100})
 
         stale = [row["id"] for path, row in known.items() if path not in seen]
         self.writer.delete_files(stale)
         stats.deleted = len(stale)
 
         stats.duration_s = round(time.monotonic() - started, 3)
+        self.progress({"phase": "done", "current": total, "total": total, "percent": 100})
         self.conn.execute(
             "UPDATE repositories SET last_indexed_at = datetime('now'), last_index_stats = ? WHERE id = ?",
             (str(asdict(stats)), repo_id),

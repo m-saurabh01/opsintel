@@ -1,16 +1,13 @@
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from opsintel.ai_queue import retrieve
 from opsintel.config import Settings
 from opsintel.db import connect, migrate
 from opsintel.experiments.metadata_search import MetadataShadowIndex
 from opsintel.indexing import LocalIndexer, register_local_repo
-from opsintel.main import create_app
 from opsintel.search import SearchRequest, search
 from tests import doc_fixtures as fx
-from tests.conftest import write
+from tests.conftest import authenticated_client, write
 
 
 def test_shadow_metadata_search_finds_csv_and_xlsx_headers_without_changing_live_fts(
@@ -42,7 +39,7 @@ def test_shadow_metadata_search_finds_csv_and_xlsx_headers_without_changing_live
     assert live_after == live_before
 
 
-def test_opt_in_metadata_api_and_ai_retrieval(tmp_path: Path):
+def test_unified_search_uses_indexed_metadata_without_shadow_index(tmp_path: Path):
     settings = Settings(_env_file=None, opsintel_data_dir=tmp_path / "app-data", ai_enabled=False)
     source = tmp_path / "repo"
     source.mkdir()
@@ -52,21 +49,8 @@ def test_opt_in_metadata_api_and_ai_retrieval(tmp_path: Path):
     migrate(conn)
     repo_id = register_local_repo(conn, "metadata-demo", source)
     LocalIndexer(conn, settings).index_repo(repo_id)
-    shadow = MetadataShadowIndex(settings.metadata_search_path)
-    try:
-        shadow.refresh(conn, repo_id)
-    finally:
-        shadow.close()
-
-    with TestClient(create_app(settings)) as client:
-        disabled = client.get("/api/search", params={"q": "File with tail number", "mode": "metadata"})
-        assert disabled.status_code == 503
-        assert client.get("/api/search", params={"q": "File with tail number"}).json()["total"] == 0
-
-        settings.metadata_search_enabled = True
-        response = client.get("/api/search", params={
-            "q": "File with tail number", "mode": "metadata", "repo": repo_id,
-        })
+    with authenticated_client(settings) as client:
+        response = client.get("/api/search", params={"q": "File with tail number", "repo": repo_id})
         assert response.status_code == 200
         results = {item["path"]: item for item in response.json()["results"]}
         assert set(results) == {"aircraft.csv", "fleet.xlsx"}
