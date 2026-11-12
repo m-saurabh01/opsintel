@@ -49,13 +49,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS metadata_fts USING fts5(
 );
 """
 
-
 def normalize_text(value: str) -> str:
-    value = ACRONYM_BOUNDARY_RE.sub(" ", value)
     value = CAMEL_BOUNDARY_RE.sub(" ", value)
-    value = value.replace("_", " ")
     return " ".join(WORD_RE.findall(value)).lower()
-
 
 def query_terms(query: str) -> list[str]:
     return [word for word in normalize_text(query).split() if len(word) > 1 and word not in STOP_WORDS]
@@ -143,45 +139,77 @@ class MetadataShadowIndex:
             raise
         return {"repo_id": repo_id, "chunks_refreshed": now_count, "index_path": str(self.path)}
 
-    def search(self, query: str, *, mode: str = "fulltext", repo_id: int | None = None, limit: int = 20) -> dict:
+    def search(
+        self,
+        query: str,
+        *,
+        mode: str = "fulltext",
+        repo_id: int | None = None,
+        repo_ids: list[int] | None = None,
+        branch: str | None = None,
+        file_types: list[str] | None = None,
+        languages: list[str] | None = None,
+        path_prefix: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+        limit: int | None = None,
+    ) -> dict:
         terms = query_terms(query)
         if not terms:
             raise InvalidQuery("query has no searchable terms")
         if mode not in {"fulltext", "phrase", "exact"}:
             raise InvalidQuery("mode must be fulltext, phrase or exact")
-        limit = min(max(int(limit), 1), 100)
+        if repo_id is not None:
+            repo_ids = [repo_id]
+        page = max(int(page), 1)
+        page_size = min(max(int(limit if limit is not None else page_size), 1), 100)
+        offset = (page - 1) * page_size
+        path_like = None
+        if path_prefix:
+            path_like = path_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        filter_params = (
+            branch, branch,
+            json.dumps(file_types or []), json.dumps(file_types or []),
+            json.dumps(languages or []), json.dumps(languages or []),
+            path_like, path_like,
+            json.dumps(repo_ids or []), json.dumps(repo_ids or []),
+        )
+        filters = (
+            " AND (? IS NULL OR c.branch = ?)"
+            " AND (json_array_length(?) = 0 OR c.file_type IN (SELECT value FROM json_each(?)))"
+            " AND (json_array_length(?) = 0 OR c.language IN (SELECT value FROM json_each(?)))"
+            " AND (? IS NULL OR c.path LIKE ? ESCAPE '\\')"
+            " AND (json_array_length(?) = 0 OR c.repo_id IN "
+            "(SELECT CAST(value AS INTEGER) FROM json_each(?)))"
+        )
         if mode == "exact":
             normalized = normalize_text(query)
             if len(normalized) < 3:
                 raise InvalidQuery("exact search needs at least 3 normalized characters")
-            if repo_id is not None:
-                rows = self.conn.execute(
-                    "SELECT c.*, 0.0 AS score FROM metadata_chunks c "
-                    "WHERE instr(c.search_text, ?) > 0 AND c.repo_id = ? "
-                    "ORDER BY c.repo_name, c.path LIMIT ?", (normalized, repo_id, limit),
-                ).fetchall()
-            else:
-                rows = self.conn.execute(
-                    "SELECT c.*, 0.0 AS score FROM metadata_chunks c WHERE instr(c.search_text, ?) > 0 "
-                    "ORDER BY c.repo_name, c.path LIMIT ?", (normalized, limit),
-                ).fetchall()
+            count_query = "SELECT count(*) FROM metadata_chunks c WHERE instr(c.search_text, ?) > 0" + filters  # noqa: S608
+            search_query = "SELECT c.*, 0.0 AS score FROM metadata_chunks c WHERE instr(c.search_text, ?) > 0" + \
+                filters + " ORDER BY c.repo_name, c.path, c.chunk_id LIMIT ? OFFSET ?"  # noqa: S608
+            count = self.conn.execute(count_query, (normalized, *filter_params)).fetchone()[0]
+            rows = self.conn.execute(search_query, (normalized, *filter_params, page_size, offset)).fetchall()
         else:
             match = '"' + " ".join(terms).replace('"', '""') + '"' if mode == "phrase" else \
                 " AND ".join('"' + term.replace('"', '""') + '"' for term in terms)
-            if repo_id is not None:
-                rows = self.conn.execute(
-                    "SELECT c.*, bm25(metadata_fts) AS score FROM metadata_fts "
-                    "JOIN metadata_chunks c ON c.chunk_id = metadata_fts.rowid "
-                    "WHERE metadata_fts MATCH ? AND c.repo_id = ? ORDER BY score LIMIT ?",
-                    (match, repo_id, limit),
-                ).fetchall()
-            else:
-                rows = self.conn.execute(
-                    "SELECT c.*, bm25(metadata_fts) AS score FROM metadata_fts "
-                    "JOIN metadata_chunks c ON c.chunk_id = metadata_fts.rowid "
-                    "WHERE metadata_fts MATCH ? ORDER BY score LIMIT ?", (match, limit),
-                ).fetchall()
-        return {"query": query, "mode": mode, "total": len(rows), "results": [self._result(row, terms) for row in rows]}
+            count_query = (
+                "SELECT count(*) FROM metadata_fts JOIN metadata_chunks c ON c.chunk_id = metadata_fts.rowid "  # noqa: S608
+                "WHERE metadata_fts MATCH ?" + filters
+            )  # noqa: S608
+            search_query = (
+                "SELECT c.*, bm25(metadata_fts) AS score FROM metadata_fts "  # noqa: S608
+                "JOIN metadata_chunks c ON c.chunk_id = metadata_fts.rowid WHERE metadata_fts MATCH ?" + filters +
+                " ORDER BY score, c.repo_name, c.path LIMIT ? OFFSET ?"
+            )  # noqa: S608
+            count = self.conn.execute(count_query, (match, *filter_params)).fetchone()[0]
+            rows = self.conn.execute(search_query, (match, *filter_params, page_size, offset)).fetchall()
+        return {
+            "query": query, "mode": mode, "page": page, "page_size": page_size,
+            "total": count, "total_is_lower_bound": False,
+            "results": [self._result(row, terms) for row in rows],
+        }
 
     @staticmethod
     def _result(row: sqlite3.Row, terms: list[str]) -> dict:
@@ -206,12 +234,26 @@ class MetadataShadowIndex:
             if matching_column:
                 location.update({"row": row["row_num"], "column_index": matching_column,
                                  "column": headers[matching_column - 1]})
+        matched = [index for index, score in enumerate(scores) if score]
         start = max(0, anchor - 1)
         end = min(len(lines), anchor + 2)
+        preview = []
+        for index in range(start, end):
+            line = lines[index]
+            spans = []
+            for term in terms:
+                pattern = re.compile(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", re.IGNORECASE)
+                spans.extend((match.start(), match.end()) for match in pattern.finditer(line))
+            preview.append({"line": row["start_line"] + index if row["coord_kind"] == "line" else None,
+                            "index": index, "label": label(row, index, line), "text": line,
+                            "highlights": sorted(set(spans))})
         return {
-            "repo": row["repo_name"], "path": row["path"], "file_type": row["file_type"],
+            "chunk_id": row["chunk_id"], "file_id": row["file_id"],
+            "repo": {"id": row["repo_id"], "name": row["repo_name"]},
+            "path": row["path"], "file_type": row["file_type"],
             "language": row["language"], "branch": row["branch"], "commit_sha": row["commit_sha"],
-            "location": location, "preview": [{"label": label(row, index, line), "text": line}
-                                                 for index, line in enumerate(lines[start:end], start=start)],
-            "text": row["source_text"], "score": -float(row["score"]),
+            "location": location, "match_count": len(matched),
+            "match_lines": [(row["start_line"] or 1) + index for index in matched[:50]]
+            if row["coord_kind"] == "line" else [],
+            "preview": preview, "text": row["source_text"], "score": -float(row["score"]),
         }

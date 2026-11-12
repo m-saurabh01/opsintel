@@ -23,7 +23,7 @@ KNOWN_FILENAMES = {
     ".gitattributes": ("text", "text"), ".editorconfig": ("structured", "ini"),
 }
 # Documents and spreadsheets go to dedicated parsers (see parsers/registry.py).
-DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".odt", ".rtf"}
+DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".odt", ".ppt", ".pptx", ".rtf"}
 SPREADSHEET_EXTENSIONS = {".xls", ".xlsx", ".xlsm", ".ods", ".csv", ".tsv"}
 BINARY_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svgz", ".webp", ".tif", ".tiff",

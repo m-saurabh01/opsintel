@@ -3,6 +3,7 @@ from opsintel.discovery import FileKind
 from opsintel.parsers.base import Parser
 from opsintel.parsers.delimited import DelimitedParser
 from opsintel.parsers.pdf import PdfParser
+from opsintel.parsers.powerpoint import LegacyPptParser, PptxParser
 from opsintel.parsers.sheets import OdsParser, XlsParser, XlsxParser
 from opsintel.parsers.text import TextParser
 from opsintel.parsers.word import DocxParser, LegacyDocParser, find_libreoffice
@@ -11,7 +12,8 @@ TEXT_KINDS = {"code", "text", "structured", "unknown"}
 
 PARSER_CLASSES: dict[str, type] = {
     cls.name: cls
-    for cls in (TextParser, DelimitedParser, PdfParser, DocxParser, LegacyDocParser, XlsxParser, XlsParser, OdsParser)
+    for cls in (TextParser, DelimitedParser, PdfParser, DocxParser, LegacyDocParser, PptxParser, LegacyPptParser,
+                XlsxParser, XlsParser, OdsParser)
 }
 
 
@@ -26,13 +28,16 @@ class ParserRegistry:
         self.text = TextParser(lines, chars)
         soffice = find_libreoffice(settings.libreoffice_path)
         doc = LegacyDocParser(soffice, settings.parse_timeout_s, chars) if soffice else None
+        ppt = LegacyPptParser(soffice, settings.parse_timeout_s, chars) if soffice else None
         xlsx = XlsxParser(lines, chars)
         self._by_language: dict[str, Parser | None] = {
             "csv": DelimitedParser(",", lines, chars),
             "tsv": DelimitedParser("\t", lines, chars),
-            "pdf": PdfParser(chars),
+            "pdf": PdfParser(chars, settings.ocr_enabled, settings.tesseract_path),
             "docx": DocxParser(chars),
             "doc": doc,
+            "ppt": ppt,
+            "pptx": PptxParser(chars),
             "xlsx": xlsx,
             "xlsm": xlsx,
             "xls": XlsParser(lines, chars),
@@ -50,4 +55,6 @@ class ParserRegistry:
     def unsupported_reason(kind: FileKind) -> str:
         if kind.language == "doc":
             return "legacy .doc requires LibreOffice (install it or set LIBREOFFICE_PATH)"
+        if kind.language == "ppt":
+            return "legacy .ppt requires LibreOffice (install it or set LIBREOFFICE_PATH)"
         return f"no parser for .{kind.language}"

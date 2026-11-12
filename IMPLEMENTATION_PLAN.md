@@ -277,7 +277,7 @@ Each milestone ends with tests passing on **macOS and Windows** and a short benc
 - **Exit:** acceptance criteria 3, 4, 5 and 9 are shown by integration tests against the local test Gitea.
 
 ### M3 — Document and spreadsheet parsers
-- PDF (PyMuPDF, scanned detection), DOCX, DOC (LibreOffice optional), XLSX/XLS/ODS, CSV/TSV.
+- PDF (PyMuPDF, optional Tesseract OCR for scanned pages), DOCX, DOC (LibreOffice optional), PPTX, PPT (LibreOffice optional), XLSX/XLS/ODS, CSV/TSV.
 - Parse cache keyed by content hash, parser version and options.
 - Viewer endpoints for PDF pages, sheet windows, CSV rows and DOCX sections.
 - **Exit:** a fixture for every format, including malformed, empty and large files. Coordinate-accuracy tests pass, and memory stays bounded on a 200 MB CSV and a 50-sheet workbook.
@@ -291,8 +291,8 @@ Each milestone ends with tests passing on **macOS and Windows** and a short benc
 ### M6 — AI question answering (Ollama) (done)
 - Ollama health, version and model checks (see 1.3) at startup and before each request. `AI_ENABLED` flag.
 - Persistent SQLite AI queue with one consumer per configured slot, a bounded admission limit, and 429 when full. The consumer starts in the API lifespan; its running state and failures are exposed by `/api/health`.
-- Retrieval: top-K FTS chunks (hybrid after M7), deduplicated and fitted to a token budget.
-- Default evidence budget is **6,000 characters** for the 4K-context Phi-3 development model; configure `AI_CONTEXT_CHARS` with the selected model's context in mind.
+- Retrieval: up to four ranked chunks from unified lexical, metadata and optional semantic search, deduplicated and fitted to a **2,500-character** budget by default.
+- Uncited model text is preserved with a warning and its retrieved sources are listed, rather than replaced by a generic citation failure.
 - Prompt: system rules, delimited untrusted evidence blocks with IDs, and an instruction to cite IDs only.
 - **Citation validator:** any cited ID that was not in the evidence set is stripped and the answer is flagged. Locations are rendered from the database, never from model text.
 - Streaming (SSE), cancellation (closing the Ollama request), timeouts, and configurable `keep_alive`.
@@ -301,12 +301,21 @@ Each milestone ends with tests passing on **macOS and Windows** and a short benc
 - **Verification:** Assistant route opens without a runtime error; one Assistant instance is rendered; a live question against `saurabh/test` returned `db2.connection.timeout=90` with a citation to `config/db2.properties` line 5.
 - **Exit:** acceptance criteria 6 and 8. Prompt-injection fixtures pass; answer IDs are citation-validated. Queue startup, leasing, cancellation and context limits have regression tests.
 
-### M7 — Semantic and hybrid search (optional layer)
-- **Lexical metadata experiment (isolated prototype):** `opsintel experimental metadata-index --repo saurabh/test` builds a separate `data/experiments/metadata-shadow.sqlite3`; `opsintel experimental metadata-search "File with tail number" --repo saurabh/test` searches parser metadata and normalized identifiers. It finds CSV/XLSX headers without modifying the live SQLite database, FTS triggers, search API, or running worker. Evaluate this shadow index before deciding whether to adopt its projection into production.
+### M7 — Unified lexical, metadata and semantic search
+- Metadata projections are stored and updated with live chunks in SQLite FTS5. Existing chunks are backfilled during migration; header and identifier subwords are fused into normal search rather than requiring a manually refreshed shadow index.
+- **Implemented (opt-in, `SEMANTIC_SEARCH_ENABLED=false` by default):**
+  - Ollama `/api/embed` client with per-model task prefixes (nomic: `search_query: ` / `search_document: `) and a model + prefixed-text-hash SQLite cache (`embedding_cache`).
+  - `opsintel experimental embedding-index [--repo]` backfills the cache in bounded batches; the worker embeds newly written chunks after each sync (a failure is logged and never fails the indexing job).
+  - `/api/search` defaults to unified search: exact lexical and metadata matches first, bounded semantic-only results labelled Related, and substring-in-word matches last. The UI presents one search mode; legacy API modes remain available.
+  - Semantic-only results are filtered relative to the query's top cosine score and capped at ten. Counts distinguish matches, related results and substring fallbacks.
+  - Assistant retrieval uses the same ranking, sends at most four chunks/2,500 characters by default, and preserves uncited model text with a warning and retrieved source list.
+  - Dev embedding models: `nomic-embed-text-v1.5` (768-d, 2048-token context, `devtools/ollama/Modelfile.nomic`) and `all-MiniLM-L6-v2` (384-d, 256-token context, `devtools/ollama/Modelfile.embed`), both imported into Ollama from local GGUF files because the registry is blocked by the corporate proxy.
+  - **Evaluation** (`opsintel experimental eval-search devtools/eval/saurabh-test.json --model <m>`, 43 natural-language + 18 identifier queries on `saurabh/test`, MRR@10): full-text 0.303 (it ANDs every term, so 42 of 43 questions return nothing), keyword fusion 0.816, semantic 0.847 (nomic) / 0.839 (MiniLM), **hybrid 0.882 (nomic) / 0.895 (MiniLM)**. Identifier queries: hybrid 0.972 vs semantic 0.77-0.83; natural language: hybrid 0.84-0.86 vs full-text 0.023. The two models differ by less than 0.02 MRR, which this small set cannot resolve; nomic is the default because MiniLM truncates each chunk to 256 tokens.
+  - **Known limits:** vectors are compared in Python (no vector index), so query latency grows linearly with chunk count and must be profiled in M8 before enabling on a large index; relevance cutoffs need validation on a held-out corpus; the evaluation set covers one small repository; permission prefiltering arrives with M5.
 - Embedding queue using the Ollama `/api/embed` endpoint, with an embedding cache keyed by text hash and model.
 - Vector search with repository and permission prefiltering. RRF fusion with full-text search.
 - Evaluation set (around 50 queries with expected files) to measure MRR and recall against full-text only.
-- **Exit:** acceptance criterion 7. Hybrid search improves the evaluation set, or it stays off by default.
+- **Exit:** acceptance criterion 7. Hybrid search beats full-text on the evaluation set (see results above), so it is available behind the flag; it stays off by default until M8 profiling.
 
 ### M8 — Hardening and deliverables
 - Load tests (`locust` or a custom asyncio harness): concurrent search plus AI plus indexing under memory pressure.
@@ -410,9 +419,10 @@ Key `.env` entries:
   - **Resolved:** the webhook is now delivered end to end.
 - **M3 (done):**
   - **Parsers:**
-    - PDF via PyMuPDF 1.x, pinned below 2.0 because 2.0 pulls in onnxruntime and numpy. Gives the page plus the section path from the PDF outline. Scanned pages are detected and reported; OCR is not enabled.
+    - PDF via PyMuPDF 1.x, pinned below 2.0 because 2.0 pulls in onnxruntime and numpy. Gives the page plus the section path from the PDF outline. Optional Tesseract OCR handles scanned pages when `OCR_ENABLED=true` and the English language data is installed.
     - DOCX via python-docx. Gives the heading path, paragraph number and table/row, in document order.
     - Legacy DOC via headless LibreOffice when it is installed; otherwise the file is recorded as unsupported with a reason.
+    - PPTX via hardened OOXML parsing, with slide titles, shape text and table rows indexed by slide and position. Legacy PPT is converted with headless LibreOffice when available; otherwise recorded as unsupported.
     - XLSX via openpyxl in read-only mode. Indexes cached values and formulas separately and warns when a cached value is missing.
     - XLS via xlrd (values only) and ODS via odfpy (handles repeated rows and columns).
     - CSV/TSV with delimiter sniffing, quoted multi-line fields, encoding detection, record numbers and column names.
@@ -420,9 +430,9 @@ Key `.env` entries:
   - **Parse cache:** keyed by content hash and parser signature, LRU-bounded by `PARSE_CACHE_MAX_MB`. Identical documents at different paths, branches or repos are parsed once.
   - **Reparse on change:** changing a parser's version or settings changes its signature, so affected files are re-parsed on the next sync. This is how the existing `aircraft.csv` moved from line mode to row mode.
   - **Search locations:** results report the exact location for every kind — line, page and section, section and paragraph or table row, sheet and cell with its column header, and CSV row and column name. The chunk viewer API is `GET /api/files/{id}/chunks/{chunk_id}`, and the UI viewer highlights the exact matching line.
-  - **Verification:** 52 tests, using fixtures generated in code (no binary files in the repo). A live push of PDF, DOCX, XLSX, XLS and ODS files to `saurabh/test` was indexed through the webhook with correct locations.
+  - **Verification:** 52 tests, using fixtures generated in code (no binary files in the repo). A live push of PDF, DOCX, XLSX, XLS and ODS files to `saurabh/test` was indexed through the webhook with correct locations. PPTX slide text and table locations are covered by generated fixtures; legacy PPT conversion is covered with a mocked LibreOffice invocation.
   - **Known M3 limitations:**
-    - No OCR.
+    - OCR recognizes English only by default; configure Tesseract language data before processing other languages.
     - Word page numbers are not reported (by design).
     - XLS formulas are unavailable in xlrd.
     - A CSV value containing `" | "` can shift the reported column.

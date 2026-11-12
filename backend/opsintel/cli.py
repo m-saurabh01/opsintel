@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -261,9 +262,8 @@ experimental_app = typer.Typer(no_args_is_help=True, help="Isolated experimental
 app.add_typer(experimental_app, name="experimental")
 
 
-def _shadow_path(database: Path | None) -> Path:
-    settings = get_settings()
-    return (database or settings.opsintel_data_dir / "experiments" / "metadata-shadow.sqlite3").expanduser()
+def _shadow_path(settings, database: Path | None) -> Path:
+    return (database or settings.metadata_search_path).expanduser()
 
 
 @experimental_app.command("metadata-index")
@@ -283,7 +283,7 @@ def metadata_index(
             if row is None:
                 raise typer.BadParameter(f"unknown enabled repository '{repo}'")
             repo_id = row["id"]
-        shadow = MetadataShadowIndex(_shadow_path(database))
+        shadow = MetadataShadowIndex(_shadow_path(settings, database))
         try:
             typer.echo(json.dumps(shadow.refresh(conn, repo_id), indent=2))
         finally:
@@ -312,7 +312,7 @@ def metadata_search(
             if row is None:
                 raise typer.BadParameter(f"unknown enabled repository '{repo}'")
             repo_id = row["id"]
-        shadow = MetadataShadowIndex(_shadow_path(database))
+        shadow = MetadataShadowIndex(_shadow_path(settings, database))
         try:
             result = shadow.search(query, mode=mode, repo_id=repo_id, limit=limit)
         finally:
@@ -326,6 +326,76 @@ def metadata_search(
         typer.echo(typer.style(f"{hit['repo']}:{hit['path']} [{location}]", fg=typer.colors.CYAN))
         for line in hit["preview"]:
             typer.echo(f"  {line['label']:>8}  {line['text']}")
+
+
+@experimental_app.command("embedding-index")
+def embedding_index(
+    repo: Annotated[str | None, typer.Option(help="Limit indexing to this registered repository name")] = None,
+    batch_size: Annotated[int, typer.Option(min=1, max=256)] = 32,
+) -> None:
+    """Populate the opt-in Ollama embedding cache without changing lexical search."""
+    from opsintel.embeddings import index_embeddings
+
+    settings = get_settings()
+    if not settings.semantic_search_enabled:
+        raise typer.BadParameter("set SEMANTIC_SEARCH_ENABLED=true to build the embedding cache")
+    if not settings.ollama_embed_model:
+        raise typer.BadParameter("set OLLAMA_EMBED_MODEL to an installed embedding model")
+    conn = _conn()
+    try:
+        repo_ids = None
+        if repo:
+            row = conn.execute("SELECT id FROM repositories WHERE name = ? AND enabled = 1", (repo,)).fetchone()
+            if row is None:
+                raise typer.BadParameter(f"unknown enabled repository '{repo}'")
+            repo_ids = [row["id"]]
+        result = asyncio.run(index_embeddings(
+            conn, settings.ollama_base_url, settings.ollama_embed_model, repo_ids, batch_size, settings.ai_timeout_s,
+        ))
+        typer.echo(json.dumps(result, indent=2))
+    finally:
+        conn.close()
+
+
+@experimental_app.command("eval-search")
+def eval_search(
+    queries: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="JSON query set with expected files")],
+    model: Annotated[str | None, typer.Option(help="Embedding model (defaults to OLLAMA_EMBED_MODEL)")] = None,
+    show_misses: Annotated[bool, typer.Option(help="List queries whose expected file is not in the top 5")] = False,
+) -> None:
+    """Compare full-text, keyword-fusion, semantic and hybrid rankings (MRR@10, hit@1, hit@5)."""
+    from opsintel.evaluation import evaluate, load_queries
+
+    settings = get_settings().model_copy(update={
+        "semantic_search_enabled": True,
+        "ollama_embed_model": model or get_settings().ollama_embed_model,
+    })
+    if not settings.ollama_embed_model:
+        raise typer.BadParameter("pass --model or set OLLAMA_EMBED_MODEL")
+    repo_name, items = load_queries(queries)
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT id FROM repositories WHERE name = ? AND enabled = 1", (repo_name,)).fetchone()
+        if row is None:
+            raise typer.BadParameter(f"unknown enabled repository '{repo_name}'")
+        groups = {"all": items}
+        for kind in dict.fromkeys(item.get("kind", "natural") for item in items):
+            groups[kind] = [item for item in items if item.get("kind", "natural") == kind]
+        summaries = {label: evaluate(conn, settings, subset, [row["id"]]) for label, subset in groups.items()}
+    finally:
+        conn.close()
+    typer.echo(f"{len(items)} queries on {repo_name}, embedding model {settings.ollama_embed_model}")
+    for label, summary in summaries.items():
+        typer.echo(f"\n[{label}: {summary['hybrid']['queries']} queries]")
+        typer.echo(f"{'mode':<10} {'MRR@10':>7} {'hit@1':>7} {'hit@5':>7} {'no results':>11}")
+        for name, row_summary in summary.items():
+            typer.echo(f"{name:<10} {row_summary['mrr']:>7} {row_summary['hit@1']:>7} {row_summary['hit@5']:>7} "
+                       f"{row_summary['no_results']:>11}")
+    if show_misses:
+        for name in ("hybrid", "fulltext"):
+            typer.echo(f"\n{name} misses:")
+            for miss in summaries["all"][name]["misses"]:
+                typer.echo(f"  rank={miss['rank']}  {miss['q']}  -> {miss['top']}")
 
 
 @app.command("search")

@@ -10,6 +10,10 @@ class QueueFull(RuntimeError):
     pass
 
 
+class DailyLimitReached(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class Job:
     id: int
@@ -20,7 +24,8 @@ class Job:
 
 
 def enqueue(conn: sqlite3.Connection, queue: str, dedupe_key: str, payload: dict, *, priority: int = 100,
-            max_attempts: int = 5, max_queued: int = 1000, delay_s: float = 0.0) -> tuple[int, bool]:
+            max_attempts: int = 5, max_queued: int = 1000, delay_s: float = 0.0,
+            owner_user_id: int | None = None, daily_limit: int = 0) -> tuple[int, bool]:
     """Queue a job. Returns (job_id, created); an identical queued job is reused instead of duplicated."""
     now = time.time()
     with transaction(conn):
@@ -34,13 +39,21 @@ def enqueue(conn: sqlite3.Connection, queue: str, dedupe_key: str, payload: dict
                 (priority, now + delay_s, existing["id"]),
             )
             return existing["id"], False
+        if queue == "ai" and owner_user_id is not None and daily_limit > 0:
+            day_start = int(now // 86400) * 86400
+            accepted = conn.execute(
+                "SELECT count(*) FROM jobs WHERE queue = 'ai' AND owner_user_id = ? AND created_at >= ?",
+                (owner_user_id, day_start),
+            ).fetchone()[0]
+            if accepted >= daily_limit:
+                raise DailyLimitReached
         depth = conn.execute("SELECT count(*) FROM jobs WHERE queue = ? AND status = 'queued'", (queue,)).fetchone()[0]
         if depth >= max_queued:
             raise QueueFull(f"queue '{queue}' has {depth} queued jobs (limit {max_queued})")
         job_id = conn.execute(
-            "INSERT INTO jobs(queue, dedupe_key, payload, status, priority, max_attempts, run_after, created_at) "
-            "VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)",
-            (queue, dedupe_key, json.dumps(payload), priority, max_attempts, now + delay_s, now),
+            "INSERT INTO jobs(queue, dedupe_key, payload, status, priority, max_attempts, run_after, created_at, "
+            "owner_user_id) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
+            (queue, dedupe_key, json.dumps(payload), priority, max_attempts, now + delay_s, now, owner_user_id),
         ).lastrowid
     return job_id, True
 
@@ -203,9 +216,18 @@ def stats(conn: sqlite3.Connection) -> dict:
 
 def recent(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, queue, dedupe_key, status, priority, attempts, max_attempts, last_error, created_at, "
-        "started_at, finished_at FROM jobs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-    return [dict(r) for r in rows]
+        "SELECT id, queue, dedupe_key, payload, progress, status, priority, attempts, max_attempts, last_error, "
+        "created_at, started_at, finished_at FROM jobs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        for key in ("payload", "progress"):
+            try:
+                item[key] = json.loads(item[key]) if item[key] else {}
+            except json.JSONDecodeError:
+                item[key] = {}
+        result.append(item)
+    return result
 
 
 def purge_finished(conn: sqlite3.Connection, older_than_s: float) -> int:

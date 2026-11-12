@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 
 function HighlightedText({ text, highlights }) {
   if (!highlights?.length) return text
@@ -52,7 +53,7 @@ function sameTarget(a, b) {
 export default function Results({ result, selected, onOpen, onPage, pageSize }) {
   const [focus, setFocus] = useState(0)
   const listRef = useRef(null)
-  const { results, total, total_is_lower_bound: lowerBound, page } = result
+  const { results, total, page } = result
   const pages = Math.ceil(total / pageSize)
 
   useEffect(() => setFocus(0), [result])
@@ -76,15 +77,21 @@ export default function Results({ result, selected, onOpen, onPage, pageSize }) 
   if (!results.length) {
     return (
       <div className="empty">
-        No matches for <b>{result.query}</b>. Try another mode, fewer words, or remove filters.
+        No matches for <b>{result.query}</b>. Try a shorter query or remove filters.
       </div>
     )
   }
 
+  const counts = [
+    `${result.match_total ?? total}${result.match_total_is_lower_bound ? '+' : ''} matches`,
+    result.related_total ? `${result.related_total}${result.related_truncated ? '+' : ''} related` : null,
+    result.substring_total ? `${result.substring_total}${result.substring_total_is_lower_bound ? '+' : ''} substring` : null,
+  ].filter(Boolean).join(' · ')
+
   return (
     <>
       <div className="muted summary">
-        {total}{lowerBound ? '+' : ''} matching sections · page {page} of {pages || 1}
+        {counts} · page {page} of {pages || 1}
         <span className="hint"> · ↑/↓ to move, Enter to open</span>
       </div>
       <ol className="result-list" ref={listRef} tabIndex={0} onKeyDown={onKeyDown} aria-label="Search results">
@@ -103,11 +110,26 @@ export default function Results({ result, selected, onOpen, onPage, pageSize }) 
               <div className="result-head">
                 <span className="path" title={r.path}>{r.path}</span>
                 <span className="loc">{locationLabel(r.location)}</span>
+                {r.source_url && (
+                  <a
+                    className="gitea-link"
+                    href={r.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open this result in Gitea"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <ExternalLink size={12} aria-hidden="true" />
+                    Gitea
+                  </a>
+                )}
               </div>
               <div className="meta">
                 {r.repo.name}{r.branch ? ` @ ${r.branch}` : ''}{r.commit_sha ? ` (${r.commit_sha.slice(0, 8)})` : ''}
                 {' · '}{r.file_type}{r.language ? `/${r.language}` : ''}
                 {r.match_count > 1 ? ` · ${r.match_count} matching lines` : ''}
+                {r.match_type === 'related' && <span className="result-kind related-kind">Related</span>}
+                {r.match_type === 'substring' && <span className="result-kind substring-kind">Substring</span>}
               </div>
               <pre className="preview">
                 {r.preview.map((p, k) => (

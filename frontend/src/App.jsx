@@ -14,6 +14,7 @@ import {
   FolderGit2,
   Home,
   Layers3,
+  LogOut,
   Moon,
   Search,
   Server,
@@ -22,19 +23,39 @@ import {
   Sun,
 } from 'lucide-react'
 import { api } from './api.js'
+import AdminPanel from './AdminPanel.jsx'
 import AIAssistant from './AIAssistant.jsx'
+import AuthGate from './AuthGate.jsx'
 import ChunkViewer from './ChunkViewer.jsx'
 import Results from './Results.jsx'
 import Viewer from './Viewer.jsx'
 
 const PdfViewer = lazy(() => import('./PdfViewer.jsx'))
 
-const MODES = [
-  { value: 'fulltext', label: 'Full text' },
-  { value: 'phrase', label: 'Phrase' },
-  { value: 'exact', label: 'Exact substring' },
-]
 const PAGE_SIZE = 20
+
+function SearchModeToggle({ mode, caseSensitive, onChange }) {
+  return (
+    <div className="search-mode-control">
+      <span>Search type</span>
+      <div className="search-segmented" role="group" aria-label="Search type">
+        <button type="button" aria-pressed={mode === 'smart'} onClick={() => onChange('smart')}>
+          Smart
+        </button>
+        <button type="button" aria-pressed={mode === 'exact'} onClick={() => onChange('exact')}>
+          Exact substring
+        </button>
+      </div>
+      {mode === 'exact' && (
+        <label className="case-filter">
+          <input type="checkbox" role="switch" checked={caseSensitive}
+            onChange={(event) => onChange('exact', event.target.checked)} />
+          Case sensitive
+        </label>
+      )}
+    </div>
+  )
+}
 
 function readUrlState() {
   const p = new URLSearchParams(window.location.search)
@@ -42,7 +63,7 @@ function readUrlState() {
   return {
     q,
     view: p.get('view') || (q ? 'search' : 'home'),
-    mode: p.get('mode') || 'fulltext',
+    mode: p.get('mode') === 'exact' ? 'exact' : 'smart',
     repo: p.get('repo') || '',
     type: p.get('type') || '',
     path: p.get('path') || '',
@@ -68,7 +89,7 @@ function writeUrlState(s, replace = false) {
   const p = new URLSearchParams()
   if (s.q) p.set('q', s.q)
   if (s.view !== 'home') p.set('view', s.view)
-  if (s.mode !== 'fulltext') p.set('mode', s.mode)
+  if (s.mode !== 'smart') p.set('mode', s.mode)
   if (s.repo) p.set('repo', s.repo)
   if (s.type) p.set('type', s.type)
   if (s.path) p.set('path', s.path)
@@ -94,6 +115,14 @@ function writeUrlState(s, replace = false) {
 }
 
 export default function App() {
+  return (
+    <AuthGate>
+      {({ user, onLogout }) => <WorkspaceApp user={user} onLogout={onLogout} />}
+    </AuthGate>
+  )
+}
+
+function WorkspaceApp({ user, onLogout }) {
   const [state, setState] = useState(readUrlState)
   const [draft, setDraft] = useState(state.q)
   const [repos, setRepos] = useState([])
@@ -178,6 +207,13 @@ export default function App() {
     })
   }, [])
 
+  useEffect(() => {
+    if (!user.ai_enabled && state.view === 'assistant') {
+      setDraft('')
+      update({ view: 'home', q: '', repo: '', type: '', path: '', page: 1, open: null })
+    }
+  }, [state.view, update, user.ai_enabled])
+
   const submit = (e) => {
     e.preventDefault()
     update({ view: 'search', q: draft.trim(), page: 1, open: null })
@@ -193,7 +229,7 @@ export default function App() {
 
   const navigate = (view, patch = {}) => {
     setSidebarOpen(false)
-    update({ view, ...patch })
+    update({ view, ...(view !== state.view ? { open: null } : {}), ...patch })
   }
   const totalFiles = repos.reduce((sum, repo) => sum + (repo.files || 0), 0)
   const indexedFiles = repos.reduce((sum, repo) => sum + (repo.indexed || 0), 0)
@@ -201,9 +237,10 @@ export default function App() {
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'search', label: 'Global Search', icon: Search },
-    { id: 'assistant', label: 'AI Assistant', icon: Bot },
+    ...(user.ai_enabled ? [{ id: 'assistant', label: 'AI Assistant', icon: Bot }] : []),
     { id: 'repositories', label: 'Repositories', icon: FolderGit2 },
     { id: 'health', label: 'Index Health', icon: Activity },
+    ...(user.role === 'admin' ? [{ id: 'admin', label: 'Administration', icon: ShieldCheck }] : []),
   ]
   const categories = [
     { label: 'Code & source', type: 'code', icon: FileCode2, tint: 'blue', count: types.code || 0 },
@@ -243,9 +280,10 @@ export default function App() {
       target = { fileId: citation.file_id, chunk: citation.chunk_id, mark,
         ...(loc.kind === 'cell' ? { cell: loc.cell } : {}) }
     }
-    setDraft('')
-    navigate('search', { q: '', open: target })
+    navigate(state.view === 'assistant' ? 'assistant' : 'search', { open: target })
   }
+  const viewerBackLabel = state.view === 'assistant' ? 'Back to answer' : 'Back to results'
+  const setSearchMode = (mode, caseSensitive = false) => update({ mode, caseSensitive, page: 1, open: null })
 
   const filters = (
     <div className="search-filters" aria-label="Search filters">
@@ -276,13 +314,6 @@ export default function App() {
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         />
       </label>
-      {state.mode === 'exact' && (
-        <label className="case-filter">
-          <input type="checkbox" checked={state.caseSensitive}
-            onChange={(e) => update({ caseSensitive: e.target.checked, page: 1 })} />
-          Case sensitive
-        </label>
-      )}
     </div>
   )
 
@@ -309,7 +340,7 @@ export default function App() {
             <div><strong>{health?.search_available ? 'Local search ready' : 'Connecting'}</strong><small>{aiLabel}</small></div>
           </div>
           <div className="sidebar-user"><span className="user-avatar"><ShieldCheck size={15} /></span>
-            <span><strong>Local workspace</strong><small>No cloud connection</small></span></div>
+            <span><strong>{user.username}</strong><small>{user.role === 'admin' ? 'Administrator' : 'Local account'}</small></span></div>
         </div>
       </aside>
 
@@ -320,7 +351,7 @@ export default function App() {
           </button>
           <form className="top-search" onSubmit={submit} role="search">
             <Search size={16} />
-            <input ref={topSearchRef} type="search" value={draft} onChange={(e) => setDraft(e.target.value)}
+            <input ref={topSearchRef} type="text" value={draft} onChange={(e) => setDraft(e.target.value)}
               placeholder="Search files, documents, code, logs, spreadsheets…" aria-label="Search query" maxLength={500} />
             {draft && <button className="clear-search" type="button" aria-label="Clear search" onClick={() => setDraft('')}>×</button>}
             <span className="top-search-shortcut">⌘ K</span>
@@ -330,6 +361,9 @@ export default function App() {
             aria-pressed={theme === 'light'} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
             onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}>
             <ThemeIcon size={16} /><span>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</span>
+          </button>
+          <button className="signout-button" onClick={onLogout} title="Sign out">
+            <LogOut size={14} /><span>Sign out</span>
           </button>
         </header>
 
@@ -346,9 +380,6 @@ export default function App() {
                     <Search size={19} />
                     <input type="search" value={draft} onChange={(e) => setDraft(e.target.value)}
                       placeholder="Search across files, repositories and documents…" aria-label="Search workspace" />
-                    <select value={state.mode} onChange={(e) => update({ mode: e.target.value })} aria-label="Search mode">
-                      {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                    </select>
                     <button type="submit"><Search size={15} /> Search</button>
                   </form>
                   <div className="hero-hints"><span>Try</span>
@@ -413,9 +444,10 @@ export default function App() {
                   <div className="local-status-line"><span className={`health-dot ${health?.search_available ? 'healthy' : ''}`} />
                     {health?.search_available ? 'Search engine operational' : 'Waiting for API'}<span className="status-divider" />
                     {ai?.enabled && ai?.reachable && ai.model_present ? 'Ollama connected' : 'AI unavailable'}</div>
-                  <button className="assistant-link" onClick={() => navigate('assistant')} disabled={!ai?.enabled}>
+                  {user.ai_enabled && <button className="assistant-link" onClick={() => navigate('assistant')}
+                    disabled={!ai?.enabled}>
                     Ask with AI <ArrowRight size={13} />
-                  </button>
+                  </button>}
                 </section>
               </div>
             </section>
@@ -426,13 +458,16 @@ export default function App() {
               <div className="search-view-heading">
                 <div><span className="section-eyebrow">WORKSPACE</span><h1>Global Search</h1>
                   <p>Search source code, configurations and documents across indexed repositories.</p></div>
-                <div className="search-mode-control">
-                  <label htmlFor="mode-select">Search mode</label>
-                  <select id="mode-select" value={state.mode} onChange={(e) => update({ mode: e.target.value, page: 1 })}>
-                    {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </select>
-                </div>
+                <SearchModeToggle mode={state.mode} caseSensitive={state.caseSensitive} onChange={setSearchMode} />
               </div>
+              <form className="global-search-form" onSubmit={submit} role="search">
+                <Search size={17} />
+                <input type="text" value={draft} onChange={(e) => setDraft(e.target.value)}
+                  placeholder="Search files, documents and code…" aria-label="Search workspace" maxLength={500} />
+                {draft && <button className="clear-search" type="button" aria-label="Clear search"
+                  onClick={() => setDraft('')}>×</button>}
+                <button type="submit"><Search size={15} /> Search</button>
+              </form>
               {filters}
               {error && <div className="error" role="alert">{error}</div>}
               <main className={`search-workspace ${state.open ? 'with-viewer' : ''}`}>
@@ -442,26 +477,32 @@ export default function App() {
                       <span className="empty-search-icon"><Search size={22} /></span>
                       <h2>Search your workspace</h2>
                       <p>Try a class name, function, configuration key or phrase.</p>
-                      <div className="mode-help"><span><b>Full text</b> All terms, any order</span><span><b>Phrase</b> Exact word order</span>
-                        <span><b>Exact substring</b> Match inside identifiers</span></div>
+                      <div className="mode-help"><span>Word and identifier matches appear first.</span>
+                        <span>Meaning-based results are marked Related.</span>
+                        <span>Inside-word matches such as <b>import</b> appear last.</span></div>
                     </div>
                   ) : <>
                     <div className="results-heading">
                       <div><span className="section-eyebrow">QUERY RESULTS</span><h2>{loading ? 'Searching…' : 'Search Results'}</h2></div>
-                      {!loading && result && <span className="results-total">{result.total.toLocaleString()}{result.total_is_lower_bound ? '+' : ''} matches</span>}
+                      {!loading && result && <span className="results-total">
+                        {(result.match_total ?? result.total).toLocaleString()}{result.match_total_is_lower_bound ? '+' : ''} matches
+                        {result.related_total ? ` · ${result.related_total}${result.related_truncated ? '+' : ''} related` : ''}
+                        {result.substring_total ? ` · ${result.substring_total}${result.substring_total_is_lower_bound ? '+' : ''} substring` : ''}
+                      </span>}
                     </div>
                     {loading && <div className="search-loading"><span className="loading-line" /><span className="loading-line short" /></div>}
                     {result && !loading && <Results result={result} selected={state.open} onOpen={open}
                       onPage={(page) => update({ page })} pageSize={PAGE_SIZE} />}
                   </>}
                 </section>
-                {state.open && !state.open.chunk && <Viewer fileId={state.open.fileId} line={state.open.line} onClose={close} />}
+                {state.open && !state.open.chunk && <Viewer fileId={state.open.fileId} line={state.open.line}
+                  onClose={close} closeLabel={viewerBackLabel} />}
                 {state.open?.pdf && <Suspense fallback={<div className="viewer-message">Loading PDF viewer…</div>}>
-                  <PdfViewer fileId={state.open.fileId} page={state.open.page} onClose={close}
+                  <PdfViewer fileId={state.open.fileId} page={state.open.page} onClose={close} closeLabel={viewerBackLabel}
                     onTextView={() => update({ open: { ...state.open, pdf: false } })} />
                 </Suspense>}
                 {state.open?.chunk && !state.open.pdf && <ChunkViewer fileId={state.open.fileId} chunkId={state.open.chunk}
-                  mark={state.open.mark} cell={state.open.cell} onClose={close} />}
+                  mark={state.open.mark} cell={state.open.cell} onClose={close} closeLabel={viewerBackLabel} />}
               </main>
             </section>
           )}
@@ -483,7 +524,24 @@ export default function App() {
             </div>
           </section>}
 
-          {state.view === 'assistant' && <AIAssistant repos={repos} health={health} onOpenCitation={openCitation} />}
+          {state.view === 'admin' && user.role === 'admin' && <AdminPanel repos={repos} onChanged={async () => {
+            const [nextRepos, nextFacets] = await Promise.all([api.repos(), api.facets()])
+            setRepos(nextRepos)
+            setFacets(nextFacets)
+          }} />}
+
+          {user.ai_enabled && <main className={`assistant-workspace ${state.view !== 'assistant' ? 'assistant-hidden' : ''} ${state.view === 'assistant' && state.open ? 'with-viewer' : ''}`}>
+            <AIAssistant repos={repos} health={health} onOpenCitation={openCitation}
+              viewerOpen={state.view === 'assistant' && Boolean(state.open)} />
+            {state.view === 'assistant' && state.open && !state.open.chunk && <Viewer fileId={state.open.fileId} line={state.open.line}
+                onClose={close} closeLabel={viewerBackLabel} />}
+            {state.view === 'assistant' && state.open?.pdf && <Suspense fallback={<div className="viewer-message">Loading PDF viewer…</div>}>
+                <PdfViewer fileId={state.open.fileId} page={state.open.page} onClose={close} closeLabel={viewerBackLabel}
+                  onTextView={() => update({ open: { ...state.open, pdf: false } })} />
+            </Suspense>}
+            {state.view === 'assistant' && state.open?.chunk && !state.open.pdf && <ChunkViewer fileId={state.open.fileId} chunkId={state.open.chunk}
+                mark={state.open.mark} cell={state.open.cell} onClose={close} closeLabel={viewerBackLabel} />}
+          </main>}
 
           {state.view === 'health' && <section className="management-view">
             <div className="search-view-heading"><div><span className="section-eyebrow">SYSTEM</span><h1>Index Health</h1>

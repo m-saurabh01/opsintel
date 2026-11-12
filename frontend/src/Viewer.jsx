@@ -5,7 +5,7 @@ const BEFORE = 40
 const AFTER = 120
 const MORE = 200
 
-export default function Viewer({ fileId, line, onClose }) {
+export default function Viewer({ fileId, line, onClose, closeLabel = 'Close' }) {
   const [meta, setMeta] = useState(null)
   const [lines, setLines] = useState([])
   const [range, setRange] = useState(null)
@@ -65,7 +65,7 @@ export default function Viewer({ fileId, line, onClose }) {
             </div>
           )}
         </div>
-        <button onClick={onClose} title="Close (Esc)">Close</button>
+        <button onClick={onClose} title="Return to previous view (Esc)">{closeLabel}</button>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {range && (

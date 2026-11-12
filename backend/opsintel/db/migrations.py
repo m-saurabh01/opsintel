@@ -166,4 +166,99 @@ CREATE TABLE ai_cache (
 CREATE INDEX ix_ai_cache_lru ON ai_cache(last_used_at);
 """,
     ),
+    (
+        5,
+        """
+CREATE TABLE embedding_cache (
+    model TEXT NOT NULL,
+    text_hash TEXT NOT NULL,
+    dimensions INTEGER NOT NULL,
+    vector_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (model, text_hash)
+);
+""",
+    ),
+    (
+        6,
+        """
+ALTER TABLE chunks ADD COLUMN search_metadata TEXT NOT NULL DEFAULT '';
+CREATE VIRTUAL TABLE chunks_meta_fts USING fts5(
+    search_metadata, content='chunks', content_rowid='id',
+    tokenize="unicode61 remove_diacritics 2"
+);
+CREATE TRIGGER chunks_meta_ai AFTER INSERT ON chunks BEGIN
+    INSERT INTO chunks_meta_fts(rowid, search_metadata) VALUES (new.id, new.search_metadata);
+END;
+CREATE TRIGGER chunks_meta_ad AFTER DELETE ON chunks BEGIN
+    INSERT INTO chunks_meta_fts(chunks_meta_fts, rowid, search_metadata)
+    VALUES ('delete', old.id, old.search_metadata);
+END;
+CREATE TRIGGER chunks_meta_au AFTER UPDATE OF search_metadata ON chunks BEGIN
+    INSERT INTO chunks_meta_fts(chunks_meta_fts, rowid, search_metadata)
+    VALUES ('delete', old.id, old.search_metadata);
+    INSERT INTO chunks_meta_fts(rowid, search_metadata) VALUES (new.id, new.search_metadata);
+END;
+""",
+    ),
+    (
+        7,
+        """
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login_at TEXT
+);
+
+CREATE TABLE auth_sessions (
+    token_hash TEXT PRIMARY KEY,
+    csrf_hash TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    last_seen_at REAL NOT NULL
+);
+CREATE INDEX ix_auth_sessions_user ON auth_sessions(user_id);
+CREATE INDEX ix_auth_sessions_expiry ON auth_sessions(expires_at);
+
+CREATE TABLE auth_login_attempts (
+    id INTEGER PRIMARY KEY,
+    username_key TEXT NOT NULL,
+    attempted_at REAL NOT NULL
+);
+CREATE INDEX ix_auth_login_attempts_user_time ON auth_login_attempts(username_key, attempted_at);
+
+CREATE TABLE repository_access (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    repo_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+    granted_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, repo_id)
+);
+
+CREATE TABLE audit_events (
+    id INTEGER PRIMARY KEY,
+    actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX ix_audit_events_created ON audit_events(created_at);
+
+ALTER TABLE jobs ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+""",
+    ),
+    (
+        8,
+        """
+ALTER TABLE users ADD COLUMN ai_enabled INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN ai_daily_limit INTEGER NOT NULL DEFAULT 0;
+""",
+    ),
 ]

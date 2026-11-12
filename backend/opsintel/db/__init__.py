@@ -49,6 +49,16 @@ def migrate(conn: sqlite3.Connection) -> list[int]:
                 "INSERT INTO schema_migrations(version, applied_at) VALUES (?, datetime('now'))", (version,)
             )
         newly.append(version)
+    applied.update(newly)
+    backfilled = conn.execute(
+        "SELECT 1 FROM settings WHERE key = 'search_metadata_backfilled_v1'"
+    ).fetchone()
+    if 6 in applied and backfilled is None:
+        from opsintel.search_metadata import backfill_search_metadata
+
+        backfill_search_metadata(conn)
+        with transaction(conn):
+            conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('search_metadata_backfilled_v1', '1')")
     return newly
 
 

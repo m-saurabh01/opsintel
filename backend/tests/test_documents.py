@@ -1,9 +1,15 @@
+import shutil
+from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
+
 import pytest
 
+from opsintel.discovery import FileKind, classify
 from opsintel.indexing import FileWriter, LocalIndexer, register_local_repo
 from opsintel.parsers.base import ParseError, ParseResult
 from opsintel.parsers.delimited import DelimitedParser
 from opsintel.parsers.pdf import PdfParser
+from opsintel.parsers.powerpoint import LegacyPptParser, PptxParser
 from opsintel.parsers.sandbox import ParserSandbox, ParseTimeout
 from opsintel.parsers.sheets import OdsParser, XlsParser, XlsxParser, column_letter
 from opsintel.parsers.word import DocxParser
@@ -22,17 +28,24 @@ def one(conn, q, **kw):
     return r
 
 
+@pytest.mark.parametrize(("filename", "language"), [("deck.ppt", "ppt"), ("deck.pptx", "pptx")])
+def test_powerpoint_files_are_classified_as_documents(filename, language):
+    assert classify(PurePosixPath(filename)) == FileKind("document", language)
+
+
 @pytest.fixture
 def indexed(conn, settings, repo_dir, monkeypatch):
     monkeypatch.setattr("opsintel.parsers.registry.find_libreoffice", lambda *_: None)
     write(repo_dir / "docs" / "deploy.pdf", fx.make_pdf())
     write(repo_dir / "docs" / "guide.docx", fx.make_docx())
+    write(repo_dir / "docs" / "fleet.pptx", fx.make_pptx())
     write(repo_dir / "data" / "fleet.xlsx", fx.make_xlsx())
     write(repo_dir / "data" / "legacy.xls", fx.make_xls())
     write(repo_dir / "data" / "ops.ods", fx.make_ods())
     write(repo_dir / "data" / "notes.csv", fx.CSV_TEXT.encode("latin-1"))
     write(repo_dir / "data" / "plain.tsv", "host\tport\nalpha_host\t8080\n")
     write(repo_dir / "docs" / "old.doc", b"\xd0\xcf\x11\xe0legacy")
+    write(repo_dir / "docs" / "old.ppt", b"\xd0\xcf\x11\xe0legacy")
     stats = LocalIndexer(conn, settings).index_repo(register_local_repo(conn, "docs", repo_dir))
     return stats
 
@@ -41,8 +54,9 @@ def test_all_formats_indexed(conn, indexed):
     status = {r["path"]: (r["status"], r["status_reason"]) for r in conn.execute("SELECT * FROM files")}
     assert {p: s for p, (s, _) in status.items()} == {
         "docs/deploy.pdf": "indexed", "docs/guide.docx": "indexed", "data/fleet.xlsx": "indexed",
+        "docs/fleet.pptx": "indexed",
         "data/legacy.xls": "indexed", "data/ops.ods": "indexed", "data/notes.csv": "indexed",
-        "data/plain.tsv": "indexed", "docs/old.doc": "unsupported",
+        "data/plain.tsv": "indexed", "docs/old.doc": "unsupported", "docs/old.ppt": "unsupported",
     }
     assert "scanned" in status["docs/deploy.pdf"][1]
     assert "no cached value" in status["data/fleet.xlsx"][1]
@@ -62,6 +76,37 @@ def test_pdf_scanned_only_and_encrypted():
     assert "3" in result.warnings[0]
 
 
+def test_pdf_ocr_is_off_by_default():
+    with pytest.raises(ParseError, match="OCR is not enabled"):
+        parse(PdfParser(), fx.make_scanned_pdf())
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract is optional")
+def test_pdf_ocr_extracts_scanned_page_text():
+    chunks, _ = parse(PdfParser(ocr_enabled=True), fx.make_scanned_pdf())
+    assert len(chunks) == 1
+    assert chunks[0].page == 1
+    assert "SCANNED OCR MARKER" in chunks[0].text.upper()
+
+
+def test_pdf_ocr_enabled_without_tesseract_reports_configuration_error():
+    parser = PdfParser(ocr_enabled=True, tesseract_path="/missing/tesseract")
+    with pytest.raises(ParseError, match="Tesseract was not found"):
+        parse(parser, fx.make_scanned_pdf())
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract is optional")
+def test_ocr_indexing_makes_scanned_pdf_searchable(conn, settings, repo_dir):
+    settings.ocr_enabled = True
+    write(repo_dir / "docs" / "scanned.pdf", fx.make_scanned_pdf())
+    repo_id = register_local_repo(conn, "scanned-docs", repo_dir)
+    LocalIndexer(conn, settings).index_repo(repo_id)
+
+    result = one(conn, "SCANNED OCR MARKER", repo_ids=[repo_id])
+    assert result["path"] == "docs/scanned.pdf"
+    assert result["location"]["kind"] == "page" and result["location"]["page"] == 1
+
+
 def test_docx_sections_paragraphs_tables(conn, indexed):
     r = one(conn, "db2_pool_size")
     assert r["location"]["section"] == "Configuration > Database"
@@ -69,6 +114,38 @@ def test_docx_sections_paragraphs_tables(conn, indexed):
     t = one(conn, "timeout_key")
     assert (t["location"]["table"], t["location"]["table_row"]) == (1, 2)
     assert any(p["text"] == "timeout_key | 45" and p["label"] == "T1.r2" for p in t["preview"])
+
+
+def test_pptx_slide_text_and_table_locations(conn, indexed):
+    text = one(conn, "powerpoint_marker")
+    assert text["location"]["section"] == "Slide 2: Service Notes"
+    assert text["location"]["paragraph"] == 2
+    section = conn.execute("SELECT section_path FROM chunks WHERE id = ?", (text["chunk_id"],)).fetchone()[0]
+    assert section == "Slide 2: Service Notes"
+
+    table = one(conn, "ppt_table_marker")
+    assert table["location"]["section"] == "Slide 2: Service Notes"
+    assert (table["location"]["table"], table["location"]["table_row"]) == (1, 2)
+
+
+def test_legacy_ppt_requires_libreoffice(conn, indexed):
+    reason = conn.execute("SELECT status_reason FROM files WHERE path = 'docs/old.ppt'").fetchone()[0]
+    assert "LibreOffice" in reason
+
+
+def test_legacy_ppt_converts_then_uses_pptx_parser(monkeypatch):
+    pptx_data = fx.make_pptx()
+
+    def convert(command, **_kwargs):
+        output_dir = Path(command[command.index("--outdir") + 1])
+        (output_dir / "input.pptx").write_bytes(pptx_data)
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr("opsintel.parsers.powerpoint.subprocess.run", convert)
+    chunks, result = parse(LegacyPptParser("soffice"), b"legacy ppt bytes")
+
+    assert any("powerpoint_marker" in chunk.text for chunk in chunks)
+    assert result.warnings == ["converted from .ppt with LibreOffice"]
 
 
 def test_xlsx_cells_headers_formulas_hidden_sheets(conn, indexed):
@@ -137,7 +214,7 @@ def test_sandbox_timeout_and_recovery():
 
 
 def test_malformed_documents_are_reported_not_raised():
-    for parser in (PdfParser(), DocxParser(), XlsxParser(), XlsParser(), OdsParser()):
+    for parser in (PdfParser(), DocxParser(), PptxParser(), XlsxParser(), XlsParser(), OdsParser()):
         with pytest.raises(ParseError):
             parse(parser, b"this is not a real document")
 
