@@ -88,8 +88,9 @@ npm run build
 
 - [Windows development/setup guide](docs/windows-setup.md)
 - [Offline Windows staging and deployment guide](docs/windows-offline-deployment.md)
+- [Offline Windows development guide](docs/windows-offline-development.md)
 
-The offline guide describes building a Windows-compatible wheelhouse and transferring approved installers/models. Those binaries and model weights are not stored in this repository.
+The deployment guide covers a minimal runtime bundle. The offline-development guide additionally stages Python dev wheels, the npm cache, and a Git return bundle so work can continue without public internet. Installers and model weights are not stored in this repository.
 
 ## Local Data and Security
 

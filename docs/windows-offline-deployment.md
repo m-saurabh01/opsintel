@@ -1,26 +1,38 @@
 # OpsIntel Offline Windows Deployment
 
-This runbook prepares a complete, repeatable bundle on an **online Windows staging PC**, transfers it to an **offline Windows 10/11 x64 PC**, and installs OpsIntel without public-network access. The staging PC must use the same Windows architecture and Python minor version as the target.
+This runbook prepares OpsIntel on your **online Windows staging PC** and transfers it to your **offline Windows PC** without installing duplicate infrastructure.
+
+This document covers installing/running OpsIntel on the target. For editing code, running tests/builds without internet, and returning commits to GitHub, use the [offline Windows development guide](windows-offline-development.md).
+
+Your stated environment is:
+
+- **Staging PC:** uv, Python, Node, Ollama, models, and project dependencies already present.
+- **Offline PC:** Python 3.12.8, Node 22, and Git already installed.
+- **Separate internal servers:** Gitea with its MySQL database, and Ollama with Qwen3 and nomic-embed-text models.
+
+The recommended bundle contains only the approved OpsIntel checkout with the built frontend, a Windows/Python 3.12 wheelhouse, and checksums. The offline PC connects to the existing Gitea and Ollama servers over the internal network. Do not copy Gitea, MySQL, Ollama, or GGUF files for this topology.
 
 ## What Runs on the Offline PC
 
-- Python 3.12 or 3.13 x64 and the OpsIntel backend.
-- Git for Windows only if the offline PC can reach an internal Gitea server and will sync from it. Local-folder indexing does not require Git.
-- Ollama plus locally transferred model files if AI is required.
-- The prebuilt React frontend served by FastAPI. Node.js, npm, Vite, and `node_modules` are **not** needed on the target.
+- Python 3.12.8 x64 and the OpsIntel backend, installed from the transferred wheelhouse.
+- The prebuilt React frontend served by FastAPI. Node.js is already present, but the target does not need to run npm/Vite.
+- Git for Windows, already present, for Gitea-backed clone/fetch operations.
+- Ollama and its Qwen3/nomic-embed-text models remain on the separate internal Ollama server. The target needs network access to that server, not local Ollama or GGUF files.
+- The separate Gitea server, with MySQL remaining behind Gitea. OpsIntel talks to Gitea's HTTP/API and Git endpoints; it does not connect to Gitea's MySQL database.
 - SQLite is included with Python; no database server is required.
 
-If the offline PC has **no network path to Gitea**, do not configure Gitea polling there. Transfer working-tree copies of repositories and index them as local folders instead. Ollama runs locally; no external AI endpoint is used.
+This assumes the offline PC can reach the internal Gitea and Ollama servers. If it cannot reach Gitea, transfer repository working trees and index them as local folders. Only if it also cannot reach Ollama should you install a local Ollama service and transfer its complete model store.
 
 ## 1. Prepare the Staging PC
 
-Use an online Windows 10/11 x64 machine. Install these staging tools:
+Use the online Windows 10/11 x64 PC you already have. Since the target is Python 3.12.8 x64, build the wheelhouse using Windows Python 3.12 x64. You already have the required staging tools; verify their versions rather than reinstalling them:
 
-- Git for Windows.
-- Python 3.12 x64 (recommended to match production) or 3.13 x64.
+- Git for Windows, to clone the approved OpsIntel commit.
+- Python 3.12 x64, matching the target's 3.12.8 installation.
 - uv.
 - Node.js 22.12+ and npm.
-- Ollama only if you will stage local models.
+
+Do not install or package another Gitea/MySQL server, Ollama, Node, Python, or model weights for the target in your current topology. Tesseract and LibreOffice are optional and only need packaging if the target must process scanned PDFs or legacy DOC/PPT files and they are not already installed there.
 
 Record the versions and the OpsIntel Git commit being packaged:
 
@@ -34,16 +46,16 @@ Set-Location C:\path\to\OpsIntel
 git rev-parse HEAD
 ```
 
-Use a clean checkout of the exact approved commit. Include submodules and Git LFS objects if the repositories require them:
+Use a clean checkout of the pushed `master` branch (or pin an approved commit for a reproducible release). Include submodules and Git LFS objects if the OpsIntel checkout requires them:
 
 ```powershell
-git clone --recurse-submodules <OPSINTEL_GITHUB_URL> C:\OpsIntel-Staging\OpsIntel
+git clone --recurse-submodules --branch master <OPSINTEL_GITHUB_URL> C:\OpsIntel-Staging\OpsIntel
 Set-Location C:\OpsIntel-Staging\OpsIntel
-git checkout <APPROVED_COMMIT>
+git rev-parse HEAD | Set-Content C:\OpsIntel-Staging\OPSINTEL_COMMIT.txt
 git submodule update --init --recursive
 ```
 
-For each source repository to carry to a fully disconnected target, populate all required files first. For example, clone it recursively, check out the approved branch/commit, and run `git lfs pull` when applicable. Do not copy a developer's live `backend\data` directory or `.env` into the deployment bundle.
+You do not need to clone the application repositories onto the staging PC for transfer when the offline PC can reach the internal Gitea server. Do not copy a developer's live `backend\data` directory or `.env` into the deployment bundle.
 
 ## 2. Build the Frontend and Python Artifacts
 
@@ -72,33 +84,13 @@ py -3.12 -m pip download --only-binary=:all: `
 
 The `--only-binary` download is intentional: it fails on the staging PC if any runtime package lacks a compatible wheel, rather than discovering a compiler/build dependency on the offline PC. Resolve that before transfer. Do not use the staging PC's `.venv` as the deployment environment; virtual environments are not portable.
 
-## 3. Stage Windows Installers and Ollama Models
+## 3. Optional Fallback Installers and Models
 
-Download the official, signed Windows installers into `bundle\installers` and record their versions:
+For your stated setup, **skip this section**: Python, Node, and Git are already on the target, while Gitea/MySQL and Ollama with Qwen3/nomic-embed-text are on separate internal servers. Do not copy their installers, database, Ollama service, or GGUF files into the default bundle.
 
-- Python 3.12 x64 installer.
-- Git for Windows x64 installer if Gitea sync is required on the target.
-- Ollama for Windows installer if local AI is required.
-- Tesseract installer plus English language data only if scanned-PDF OCR is required.
-- LibreOffice installer only if legacy `.doc` or `.ppt` extraction is required.
+Only if a target dependency is missing and cannot be installed by your normal IT process, download its official Windows installer on the staging PC and add it to `bundle\installers`. Tesseract plus English data is only needed for scanned-PDF OCR; LibreOffice is only needed for legacy `.doc`/`.ppt` parsing.
 
-On the staging PC, install the approved chat and (optionally) embedding models into Ollama and verify the actual tags:
-
-```powershell
-ollama pull <APPROVED_CHAT_MODEL_TAG>
-ollama pull <APPROVED_EMBEDDING_MODEL_TAG> # optional
-ollama list
-```
-
-Copy the **entire Ollama model store**, not just the large model blob; manifests and related blobs are needed. Ollama's default Windows model store is `%USERPROFILE%\.ollama\models`. Stop/exit Ollama completely before copying it. Use the built-in Windows `tar.exe` to avoid ZIP size limitations on multi-gigabyte model files:
-
-```powershell
-New-Item -ItemType Directory -Force C:\OpsIntel-Staging\bundle\ollama | Out-Null
-tar.exe -cf C:\OpsIntel-Staging\bundle\ollama\models.tar `
-  -C $env:USERPROFILE\.ollama models
-```
-
-Do not include model files unless AI/semantic search is required. Model files can be several gigabytes.
+Only if the target cannot reach the Ollama server should you install Ollama locally. In that case, verify the approved model tags with `ollama list`, stop Ollama, and archive its complete model store (manifests and blobs), not only the GGUF file. Model weights can be several gigabytes.
 
 ## 4. Assemble the Offline Bundle
 
@@ -109,9 +101,9 @@ bundle\
   app\OpsIntel\                 # approved source checkout and built static frontend
   python\requirements.txt
   python\wheelhouse\             # runtime wheels and OpsIntel wheel
-  installers\                    # official Windows installers needed at the target
-  ollama\models.tar               # optional, whole Ollama model store
-  repositories\                   # optional working trees for fully disconnected use
+  installers\                    # optional fallback installers only
+  ollama\models.tar               # only if the target cannot reach Ollama
+  repositories\                   # only if the target cannot reach Gitea
   SHA256SUMS.txt
 ```
 
@@ -122,7 +114,7 @@ robocopy C:\OpsIntel-Staging\OpsIntel C:\OpsIntel-Staging\bundle\app\OpsIntel /E
   /XD .git .venv node_modules data /XF .env
 ```
 
-`robocopy` exit codes 0 through 7 indicate success or success with differences; 8 or greater indicates a copy failure. Ensure `backend\opsintel\static` was copied. Copy offline repository working trees under `bundle\repositories\<name>\` if no Gitea server will be reachable.
+`robocopy` exit codes 0 through 7 indicate success or success with differences; 8 or greater indicates a copy failure. Ensure `backend\opsintel\static` was copied. With your current topology, omit `repositories\` and `ollama\models.tar`; the target will use the separate internal Gitea and Ollama servers. Add local working trees/model files only if those servers will not be reachable from the target.
 
 Create a hash manifest after the bundle is complete:
 
@@ -171,7 +163,7 @@ if (Test-Path E:\bundle\installers) {
   Copy-Item E:\bundle\installers C:\OpsIntel\install\installers -Recurse
 }
 if (Test-Path E:\bundle\repositories) {
-  Copy-Item E:\bundle\repositories C:\OpsIntel\repos -Recurse
+  Copy-Item E:\bundle\repositories\* C:\OpsIntel\repos -Recurse
 }
 if (Test-Path E:\bundle\ollama\models.tar) {
   Copy-Item E:\bundle\ollama\models.tar C:\OpsIntel\install\ollama\models.tar
@@ -182,7 +174,7 @@ Run required installers from `C:\OpsIntel\install\installers` before ejecting th
 
 ## 6. Install on the Offline PC
 
-Install from the copied installers. Use the same Python architecture/version as the staging machine. Install Git, Ollama, Tesseract, or LibreOffice only if they are in scope. Node.js and uv are not required on the target when installing from the wheelhouse and serving the prebuilt UI.
+Verify the existing target runtimes before installing anything: Python should report 3.12.8 x64, Node 22.x, and Git should run from PowerShell. Do not reinstall Python, Node, Git, Gitea, MySQL, or Ollama for the current topology. Node is not needed to run the prebuilt UI, and `uv` is not needed on the target.
 
 The app and installer files were copied in the previous step. Create the runtime data directories:
 
@@ -219,7 +211,7 @@ Start Ollama and verify the transferred tags:
 ollama list
 ```
 
-Create `C:\OpsIntel\app\OpsIntel\backend\.env` from `.env.example`, then edit it for this machine. Do not copy the staging `.env`. Example for a fully disconnected PC indexing local copies:
+Create `C:\OpsIntel\app\OpsIntel\backend\.env` from `.env.example`, then enter the internal service addresses and token locally. Do not copy the staging `.env` or put the token in the transfer bundle. Example for your topology:
 
 ```dotenv
 OPSINTEL_DATA_DIR=C:/OpsIntel/data
@@ -228,13 +220,25 @@ API_PORT=8000
 LOCAL_REPO_ALLOWED_ROOTS=["C:/OpsIntel/repos"]
 AI_ENABLED=true
 AI_DAILY_REQUEST_LIMIT=20
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_CHAT_MODEL=<EXACT_TAG_FROM_OLLAMA_LIST>
-SEMANTIC_SEARCH_ENABLED=false
+GITEA_URL=http://<internal-gitea-host>:<port>
+GITEA_TOKEN=<enter-the-read-capable-token-locally>
+OLLAMA_BASE_URL=http://<internal-ollama-host>:11434
+OLLAMA_CHAT_MODEL=<exact-Qwen3-tag-from-the-Ollama-server>
+SEMANTIC_SEARCH_ENABLED=true
+OLLAMA_EMBED_MODEL=<exact-nomic-embed-text-tag-from-the-Ollama-server>
 OCR_ENABLED=false
 ```
 
-For a machine that can reach an **internal, offline Gitea service**, set `GITEA_URL` to that internal address and provision a least-privilege token locally in `.env`. If there is no Gitea network route, leave `GITEA_URL` empty and add the transferred working trees as local repositories. Enable semantic search only when an embedding model was bundled and its exact tag is configured. Enable OCR only when Tesseract and its English data were installed.
+Replace every angle-bracket placeholder with your actual internal host, port, or exact model tag. `GITEA_URL` is the server root (OpsIntel appends `/api/v1`); the token must be read-capable for the repositories to be indexed. Ollama must expose its API to the offline PC. Keep `API_HOST=127.0.0.1`; do not expose OpsIntel itself to the LAN. If the offline PC cannot reach Gitea, leave `GITEA_URL` blank and index transferred local working trees. If it cannot reach Ollama, use the local-Ollama fallback in section 3. Enable OCR only if Tesseract and its English data are installed.
+
+Before starting OpsIntel, test internal service reachability from the offline PC (replace hosts/ports):
+
+```powershell
+Test-NetConnection <internal-gitea-host> -Port <gitea-port>
+Test-NetConnection <internal-ollama-host> -Port 11434
+Invoke-RestMethod http://<internal-gitea-host>:<gitea-port>/api/v1/version
+Invoke-RestMethod http://<internal-ollama-host>:11434/api/tags
+```
 
 ## 8. Start and Verify
 
@@ -269,24 +273,25 @@ The health endpoint should report the database/search available and the worker a
 
 ### Staging PC
 
-- [ ] Windows x64 staging OS matches the target's architecture and Python minor version.
+- [ ] Windows x64 staging OS and Python 3.12 match the target's architecture/version.
 - [ ] Approved OpsIntel commit is recorded; required submodules and LFS files are present.
 - [ ] Frontend was built and `backend\opsintel\static` is in the bundle.
 - [ ] `uv.lock` was exported with `--locked`; Windows wheels were downloaded for Python 3.12/3.13 x64.
 - [ ] OpsIntel wheel and all runtime wheels are in the bundle.
-- [ ] Required official Windows installers and versions are recorded.
-- [ ] Required Ollama model tags are listed; the whole model store is copied if AI is required.
-- [ ] Repository working trees are copied if no internal Gitea will be reachable.
+- [ ] Only genuinely missing target installers are included; do not duplicate Python, Git, Node, Gitea/MySQL, or Ollama for the stated setup.
+- [ ] The expected Qwen3 and nomic-embed-text tags are confirmed on the internal Ollama server; no GGUF/model store is copied for the normal setup.
+- [ ] Repository working trees are copied only if the offline PC cannot reach internal Gitea.
 - [ ] `.env`, `.venv`, `node_modules`, developer databases, credentials, and tokens are excluded.
 - [ ] SHA-256 manifest is created and verified after transfer.
 
 ### Offline PC
 
-- [ ] Python and optional Git/Ollama/Tesseract/LibreOffice installers came from trusted sources and are installed as needed.
+- [ ] Existing Python 3.12.8, Node 22, and Git are verified; no unnecessary duplicate installers are run.
+- [ ] Internal Gitea and Ollama hostnames resolve and their service ports are reachable from the target.
 - [ ] Python virtual environment was created locally; no staging `.venv` was copied.
 - [ ] Pip installed the project wheel/dependencies with `--no-index` from the wheelhouse.
 - [ ] `.env` was created locally with the correct data path, allowed roots, and model tags; secrets were entered locally.
-- [ ] Ollama model tags match `OLLAMA_CHAT_MODEL` and optional `OLLAMA_EMBED_MODEL`.
+- [ ] `OLLAMA_CHAT_MODEL` and `OLLAMA_EMBED_MODEL` exactly match tags reported by the internal Ollama server.
 - [ ] API binds only to `127.0.0.1`; no public or LAN bind/firewall rule was enabled.
 - [ ] `opsintel doctor`, `/api/health`, a repository search, and worker status pass with public networking disconnected.
 - [ ] A first-admin account is created on the target; no staging user/session database was copied.
