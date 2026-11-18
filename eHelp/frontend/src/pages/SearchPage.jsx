@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Code, Download, ExternalLink, Search, Sparkles, X } from 'lucide-react'
+import { Code, Download, PanelRightClose, PanelRightOpen, ExternalLink, Search, Sparkles, X } from 'lucide-react'
 import { useApp } from '../App.jsx'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
@@ -22,6 +22,7 @@ export default function SearchPage() {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
   const [pickedPage, setPickedPage] = useState(0)
+  const [showPreview, setShowPreview] = useState(true)
   const terms = termsOf(q, mode)
   const termKey = terms.join('|')
 
@@ -65,8 +66,8 @@ export default function SearchPage() {
   return (
     <div className="search-page">
       <div className="search-head">
-        <span className="search-badge"><Search size={30} /></span>
         <div>
+          <div className="eyebrow">Workspace</div>
           <h1>Global Search</h1>
           <p>Search source documents and technical manuals across all indexed files.</p>
         </div>
@@ -94,9 +95,17 @@ export default function SearchPage() {
       {error && <div className="error">{error}</div>}
       {!q && <div className="empty">Type a word or phrase to search inside every indexed document.</div>}
       {data && (
-        <div className="split">
+        <div className={`split${showPreview ? '' : ' solo'}`}>
           <div className="results">
-            <div className="results-head"><b>Search Results</b><span>{data.total} documents · Page {page} of {Math.max(pages, 1)}</span></div>
+            <div className="eyebrow">Query results</div>
+            <div className="results-head">
+              <b>{data.total} document{data.total === 1 ? '' : 's'}</b>
+              <span className="hint">↑/↓ to move · click a snippet to jump</span>
+              <button type="button" className="icon-btn" title={showPreview ? 'Hide preview' : 'Show preview'}
+                onClick={() => setShowPreview((v) => !v)}>
+                {showPreview ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+              </button>
+            </div>
             {data.items.length === 0 && <div className="empty">No documents matched “{q}”.</div>}
             {data.items.map((item) => (
               <div key={item.document.id} className={`result${selected?.document.id === item.document.id ? ' active' : ''}`}
@@ -127,7 +136,7 @@ export default function SearchPage() {
               </div>
             )}
           </div>
-          <div className="preview">
+          <div className="preview" hidden={!showPreview}>
             {doc ? (
               <>
                 <div className="preview-head">

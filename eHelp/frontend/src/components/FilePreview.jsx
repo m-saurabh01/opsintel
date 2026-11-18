@@ -101,6 +101,29 @@ function Sheets({ id, ext, terms }) {
   )
 }
 
+function useFit(host, ready) {
+  useEffect(() => {
+    const el = host.current
+    if (!ready || !el) return undefined
+    const fit = () => {
+      const inner = [...el.children].find((c) => c.tagName !== 'STYLE')
+      if (!inner) return
+      inner.style.zoom = ''
+      const avail = el.clientWidth - 24
+      const need = Math.max(inner.scrollWidth, el.scrollWidth - 24)
+      if (need > avail && avail > 0) inner.style.zoom = String(avail / need)
+      for (let i = 0; i < 3 && el.scrollWidth > el.clientWidth + 1; i += 1) {
+        inner.style.zoom = String((Number(inner.style.zoom) || 1) * (el.clientWidth / el.scrollWidth) * 0.98)
+      }
+      el.scrollLeft = 0
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [host, ready])
+}
+
 function Docx({ id }) {
   const host = useRef(null)
   const [state, setState] = useState('loading')
@@ -122,6 +145,7 @@ function Docx({ id }) {
     })()
     return () => { cancelled = true }
   }, [id])
+  useFit(host, state === 'ok')
   return (
     <>
       {state === 'error' && <Fallback id={id} reason="This document could not be rendered." />}
@@ -152,6 +176,7 @@ function Pptx({ id }) {
     })()
     return () => { cancelled = true }
   }, [id])
+  useFit(host, state === 'ok')
   return (
     <>
       {state === 'error' && <Fallback id={id} reason="This presentation could not be rendered faithfully." />}
