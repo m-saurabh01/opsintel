@@ -4,7 +4,7 @@ import { Calendar, Download, ExternalLink, Eye, FileText } from 'lucide-react'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
 import FilePreview from '../components/FilePreview.jsx'
-import { FileIcon, formatDate, formatSize } from '../util.jsx'
+import { FileIcon, formatDate, formatSize, termsOf } from '../util.jsx'
 
 export default function DocumentPage() {
   const { id } = useParams()
@@ -32,6 +32,7 @@ export default function DocumentPage() {
 
   const isPdf = doc.ext === 'pdf'
   const page = Number(params.get('page') || 1)
+  const terms = termsOf(params.get('q'), params.get('mode'))
 
   return (
     <div className="doc-page">
@@ -63,8 +64,8 @@ export default function DocumentPage() {
       <div className="doc-layout">
         <div className="viewer-col">
           {isPdf
-            ? <PdfViewer url={api.fileUrl(doc.id)} downloadUrl={api.downloadUrl(doc.id)} page={page} />
-            : <FilePreview id={doc.id} ext={doc.ext} />}
+            ? <PdfViewer url={api.fileUrl(doc.id)} downloadUrl={api.downloadUrl(doc.id)} page={page} terms={terms} />
+            : <FilePreview key={doc.id} id={doc.id} ext={doc.ext} terms={terms} />}
         </div>
         <aside className="info-col">
           <div className="panel">

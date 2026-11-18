@@ -55,10 +55,76 @@ export function bannerFor(category) {
 export function Marked({ text }) {
   const parts = String(text || '').split(/(\x02[^\x03]*\x03)/)
   return (
-    <>
+    <span className="marked">
       {parts.map((p, i) => (p.startsWith('\x02')
         ? <mark key={i}>{p.slice(1, -1)}</mark>
-        : <span key={i}>{p}</span>))}
-    </>
+        : p))}
+    </span>
   )
+}
+
+export function termsOf(q, mode) {
+  const text = String(q || '').trim().toLowerCase()
+  if (!text) return []
+  if (mode === 'exact') return [text]
+  const words = text.replace(/["()]/g, ' ').split(/\s+/).filter((w) => w && !['and', 'or', 'not'].includes(w))
+  return [...new Set(words)].sort((a, b) => b.length - a.length)
+}
+
+const SKIP = new Set(['STYLE', 'SCRIPT', 'MARK', 'TEXTAREA', 'INPUT'])
+const MAX_MARKS = 500
+
+// Wraps matches of `terms` in <mark class="hit">; returns the total number of marks under root.
+export function highlightIn(root, terms) {
+  if (!root || !terms.length) return 0
+  const re = new RegExp(terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi')
+  let total = root.querySelectorAll('mark.hit').length
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentElement && !SKIP.has(n.parentElement.tagName) && n.nodeValue.trim()
+      ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  })
+  const nodes = []
+  while (walker.nextNode()) nodes.push(walker.currentNode)
+  for (const node of nodes) {
+    if (total >= MAX_MARKS) break
+    const text = node.nodeValue
+    re.lastIndex = 0
+    let m = re.exec(text)
+    if (!m) continue
+    const frag = document.createDocumentFragment()
+    let last = 0
+    while (m && total < MAX_MARKS) {
+      if (m.index > last) frag.append(text.slice(last, m.index))
+      const mark = document.createElement('mark')
+      mark.className = 'hit'
+      mark.textContent = m[0]
+      frag.append(mark)
+      total += 1
+      last = m.index + m[0].length
+      if (m[0].length === 0) re.lastIndex += 1
+      m = re.exec(text)
+    }
+    if (last < text.length) frag.append(text.slice(last))
+    node.replaceWith(frag)
+  }
+  return total
+}
+
+// Scrolls the nearest scrollable ancestor so that `el` is centred.
+export function scrollToEl(el) {
+  let p = el.parentElement
+  while (p && p !== document.body) {
+    const oy = getComputedStyle(p).overflowY
+    if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) {
+      const box = el.getBoundingClientRect()
+      const host = p.getBoundingClientRect()
+      p.scrollTop += box.top - host.top - p.clientHeight / 2 + box.height / 2
+      const ox = getComputedStyle(p).overflowX
+      if ((ox === 'auto' || ox === 'scroll') && p.scrollWidth > p.clientWidth) {
+        p.scrollLeft += box.left - host.left - p.clientWidth / 2 + box.width / 2
+      }
+      return
+    }
+    p = p.parentElement
+  }
 }

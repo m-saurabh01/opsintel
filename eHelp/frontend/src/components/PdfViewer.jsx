@@ -37,7 +37,7 @@ function Thumb({ pdf, number, active, onClick }) {
   )
 }
 
-export default function PdfViewer({ url, downloadUrl, page: initialPage = 1, compact = false, title }) {
+export default function PdfViewer({ url, downloadUrl, page: initialPage = 1, compact = false, title, terms = [] }) {
   const canvasRef = useRef(null)
   const hostRef = useRef(null)
   const stageRef = useRef(null)
@@ -49,6 +49,8 @@ export default function PdfViewer({ url, downloadUrl, page: initialPage = 1, com
   const [width, setWidth] = useState(0)
   const [thumbs, setThumbs] = useState(!compact)
   const [error, setError] = useState('')
+  const [boxes, setBoxes] = useState([])
+  const termKey = terms.join('|')
 
   useEffect(() => setPage(initialPage), [url, initialPage])
 
@@ -97,12 +99,38 @@ export default function PdfViewer({ url, downloadUrl, page: initialPage = 1, com
         renderRef.current = task
         await task.promise
         stageRef.current?.scrollTo({ top: 0 })
+        if (terms.length) {
+          const content = await p.getTextContent()
+          if (cancelled) return
+          const found = []
+          for (const it of content.items) {
+            const str = it.str || ''
+            const low = str.toLowerCase()
+            if (!low.trim()) continue
+            for (const t of terms) {
+              let at = low.indexOf(t)
+              while (at !== -1) {
+                const [a, b, , , e, f] = pdfjsLib.Util.transform(viewport.transform, it.transform)
+                const h = Math.hypot(a, b)
+                const w = it.width * scale
+                found.push({
+                  left: e + (w * at) / str.length - 1, top: f - h - 1,
+                  width: Math.max((w * t.length) / str.length, 6) + 2, height: h + 3,
+                })
+                at = low.indexOf(t, at + t.length)
+              }
+            }
+          }
+          setBoxes(found)
+          const first = found.reduce((m, b) => Math.min(m, b.top), Infinity)
+          if (found.length) stageRef.current?.scrollTo({ top: Math.max(0, first - 80) })
+        } else setBoxes([])
       } catch (e) {
         if (!cancelled && e.name !== 'RenderingCancelledException') setError(e.message || 'Page could not be rendered')
       }
     })()
     return () => { cancelled = true; renderRef.current?.cancel() }
-  }, [pdf, page, zoom, rotation, width])
+  }, [pdf, page, zoom, rotation, width, termKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const count = pdf?.numPages || 0
   const go = (p) => setPage(Math.min(Math.max(1, p), count || 1))
@@ -137,7 +165,12 @@ export default function PdfViewer({ url, downloadUrl, page: initialPage = 1, com
         )}
         <div className="pdfv-stage" ref={hostRef}>
           <div className="pdfv-scroll" ref={stageRef}>
-            {error ? <div className="error">{error}</div> : <canvas ref={canvasRef} />}
+            {error ? <div className="error">{error}</div> : (
+              <div className="pdfv-page">
+                <canvas ref={canvasRef} />
+                {boxes.map((b, i) => <span key={i} className="pdf-hit" style={b} />)}
+              </div>
+            )}
           </div>
         </div>
       </div>

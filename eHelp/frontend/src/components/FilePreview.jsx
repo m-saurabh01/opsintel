@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import TextViewer from './TextViewer.jsx'
+import { ChevronDown, ChevronUp } from 'lucide-react'
+import { highlightIn, scrollToEl } from '../util.jsx'
 
 const SHEET = new Set(['xlsx', 'xls', 'xlsm', 'ods'])
 const DELIM = new Set(['csv', 'tsv'])
@@ -45,7 +47,7 @@ function colName(i) {
   return s
 }
 
-function Sheets({ id, ext }) {
+function Sheets({ id, ext, terms }) {
   const [sheets, setSheets] = useState(null)
   const [active, setActive] = useState(0)
   const [error, setError] = useState('')
@@ -60,7 +62,7 @@ function Sheets({ id, ext }) {
           const Papa = (await import('papaparse')).default
           const text = new TextDecoder().decode(buf)
           const { data } = Papa.parse(text, { skipEmptyLines: true })
-          if (!cancelled) setSheets([{ name: ext.toUpperCase(), rows: data }])
+          if (!cancelled) { setSheets([{ name: ext.toUpperCase(), rows: data }]); setActive(0) }
         } else {
           const XLSX = await import('xlsx')
           const wb = XLSX.read(buf, { type: 'array', cellDates: true })
@@ -68,14 +70,20 @@ function Sheets({ id, ext }) {
             name,
             rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '', blankrows: false }),
           }))
-          if (!cancelled) setSheets(out)
+          if (!cancelled) {
+            setSheets(out)
+            const hit = terms.length
+              ? out.findIndex((sh) => sh.rows.some((r) => r.some((c) => terms.some((t) => String(c).toLowerCase().includes(t)))))
+              : -1
+            setActive(Math.max(hit, 0))
+          }
         }
       } catch (e) {
         if (!cancelled) setError(e.message || 'Could not render this spreadsheet.')
       }
     })()
     return () => { cancelled = true }
-  }, [id, ext])
+  }, [id, ext]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) return <Fallback id={id} reason={error} />
   if (!sheets) return <div className="empty">Loading preview…</div>
@@ -88,7 +96,7 @@ function Sheets({ id, ext }) {
           ))}
         </div>
       )}
-      <Grid rows={sheets[active].rows} />
+      <Grid key={active} rows={sheets[active].rows} />
     </div>
   )
 }
@@ -183,13 +191,63 @@ function Fallback({ id, reason }) {
   )
 }
 
-export default function FilePreview({ id, ext }) {
+export default function FilePreview({ id, ext, terms = [] }) {
   const e = (ext || '').toLowerCase()
+  const root = useRef(null)
+  const [hits, setHits] = useState(0)
+  const [cur, setCur] = useState(-1)
+  const jumped = useRef(false)
+  const key = terms.join('|')
+
+  const focusHit = (i) => {
+    const marks = root.current?.querySelectorAll('mark.hit') || []
+    if (!marks.length) return
+    const n = ((i % marks.length) + marks.length) % marks.length
+    marks.forEach((m, j) => m.classList.toggle('cur', j === n))
+    scrollToEl(marks[n])
+    setCur(n)
+  }
+
+  useEffect(() => {
+    jumped.current = false
+    setHits(0); setCur(-1)
+    if (!terms.length || !root.current) return undefined
+    const node = root.current
+    let timer
+    const run = () => {
+      observer.disconnect()
+      const count = highlightIn(node, terms)
+      observer.observe(node, { childList: true, subtree: true })
+      setHits(count)
+      if (count && !jumped.current) { jumped.current = true; focusHit(0) }
+    }
+    const observer = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(run, 150) })
+    observer.observe(node, { childList: true, subtree: true })
+    run()
+    return () => { observer.disconnect(); clearTimeout(timer) }
+  }, [id, key]) // eslint-disable-line react-hooks/exhaustive-deps
+
   let body
-  if (SHEET.has(e) || DELIM.has(e)) body = <Sheets id={id} ext={e} />
+  if (SHEET.has(e) || DELIM.has(e)) body = <Sheets id={id} ext={e} terms={terms} />
   else if (e === 'docx') body = <Docx id={id} />
   else if (e === 'pptx') body = <Pptx id={id} />
   else if (PLAIN.has(e)) body = <Plain id={id} />
   else body = <TextViewer id={id} />
-  return <div className="file-viewer">{body}</div>
+  return (
+    <div className="file-viewer">
+      {terms.length > 0 && (
+        <div className="hit-bar">
+          {hits > 0 ? <span><b>{cur + 1 > 0 ? cur + 1 : 1}</b> of {hits >= 500 ? '500+' : hits} matches in this file</span>
+            : <span>No highlighted matches in the preview (the match may be in the title or metadata).</span>}
+          {hits > 0 && (
+            <span className="hit-nav">
+              <button aria-label="Previous match" onClick={() => focusHit(cur - 1)}><ChevronUp size={16} /></button>
+              <button aria-label="Next match" onClick={() => focusHit(cur + 1)}><ChevronDown size={16} /></button>
+            </span>
+          )}
+        </div>
+      )}
+      <div ref={root}>{body}</div>
+    </div>
+  )
 }

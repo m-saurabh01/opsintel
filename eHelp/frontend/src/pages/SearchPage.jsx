@@ -5,7 +5,7 @@ import { useApp } from '../App.jsx'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
 import FilePreview from '../components/FilePreview.jsx'
-import { FileIcon, FILE_TYPES, formatSize, Marked } from '../util.jsx'
+import { FileIcon, FILE_TYPES, formatSize, Marked, termsOf } from '../util.jsx'
 
 const PAGE_SIZE = 10
 
@@ -21,6 +21,9 @@ export default function SearchPage() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
+  const [pickedPage, setPickedPage] = useState(0)
+  const terms = termsOf(q, mode)
+  const termKey = terms.join('|')
 
   useEffect(() => setDraft(q), [q])
 
@@ -36,14 +39,28 @@ export default function SearchPage() {
     let cancelled = false
     setError('')
     api.search({ q, mode, category, type, page, page_size: PAGE_SIZE })
-      .then((d) => { if (!cancelled) { setData(d); setSelected(d.items[0] || null) } })
+      .then((d) => { if (!cancelled) { setData(d); setSelected(d.items[0] || null); setPickedPage(0) } })
       .catch((e) => !cancelled && setError(e.message))
     return () => { cancelled = true }
   }, [q, mode, category, type, page])
 
   const pages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
   const doc = selected?.document
-  const previewPage = selected?.snippets?.find((s) => s.page)?.page || 1
+  const previewPage = pickedPage || selected?.snippets?.find((s) => s.page)?.page || 1
+  const choose = (item, pg = 0) => { setSelected(item); setPickedPage(pg) }
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!data || !['ArrowDown', 'ArrowUp'].includes(e.key)) return
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return
+      e.preventDefault()
+      const i = data.items.findIndex((x) => x.document.id === selected?.document.id)
+      const n = Math.min(Math.max(i + (e.key === 'ArrowDown' ? 1 : -1), 0), data.items.length - 1)
+      if (data.items[n]) choose(data.items[n])
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="search-page">
@@ -83,18 +100,22 @@ export default function SearchPage() {
             {data.items.length === 0 && <div className="empty">No documents matched “{q}”.</div>}
             {data.items.map((item) => (
               <div key={item.document.id} className={`result${selected?.document.id === item.document.id ? ' active' : ''}`}
-                onClick={() => setSelected(item)}>
+                onClick={() => choose(item)}>
                 <div className="result-top">
                   <FileIcon ext={item.document.ext} size={34} />
                   <div className="result-title">
                     <b>{item.document.title}</b>
                     <small>{[item.document.category, item.document.page_count && `${item.document.page_count} pages`, formatSize(item.document.size), item.matches && `${item.matches} matches`].filter(Boolean).join(' · ')}</small>
                   </div>
-                  <Link className="btn small" to={`/doc/${item.document.id}${item.snippets[0]?.page ? `?page=${item.snippets[0].page}` : ''}`}
+                  <Link className="btn small" to={`/doc/${item.document.id}?${new URLSearchParams({ ...(item.snippets[0]?.page ? { page: item.snippets[0].page } : {}), q, mode }).toString()}`}
                     onClick={(e) => e.stopPropagation()}><ExternalLink size={14} /> Open</Link>
                 </div>
                 {item.snippets.map((s, i) => (
-                  <div key={i} className="snippet"><span className="loc">{s.page ? `p.${s.page}` : s.label || '·'}</span><Marked text={s.text} /></div>
+                  <button key={i} type="button" className="snippet"
+                    onClick={(e) => { e.stopPropagation(); choose(item, s.page || 0) }}>
+                    <span className="loc">{s.page ? `p.${s.page}` : s.label || 'match'}</span>
+                    <Marked text={s.text} />
+                  </button>
                 ))}
               </div>
             ))}
@@ -111,12 +132,14 @@ export default function SearchPage() {
               <>
                 <div className="preview-head">
                   <FileIcon ext={doc.ext} size={32} />
-                  <div><b>{doc.title}</b><small>{doc.category}{doc.page_count ? ` · ${doc.page_count} pages` : ''} · {formatSize(doc.size)}</small></div>
+                  <div className="preview-title"><b>{doc.title}</b><small>{doc.category}{doc.page_count ? ` · ${doc.page_count} pages` : ''} · {formatSize(doc.size)}</small></div>
+                  <Link className="btn small" to={`/doc/${doc.id}?${new URLSearchParams({ page: previewPage, q, mode })}`}><ExternalLink size={14} /> Open</Link>
+                  <a className="btn small" href={api.downloadUrl(doc.id)}><Download size={14} /></a>
                 </div>
                 {doc.ext === 'pdf'
-                  ? <PdfViewer key={`${doc.id}-${previewPage}`} compact url={api.fileUrl(doc.id)} downloadUrl={api.downloadUrl(doc.id)} page={previewPage} />
+                  ? <PdfViewer key={doc.id} compact terms={terms} url={api.fileUrl(doc.id)} downloadUrl={api.downloadUrl(doc.id)} page={previewPage} />
                   : (
-                    <FilePreview key={doc.id} id={doc.id} ext={doc.ext} />
+                    <FilePreview key={`${doc.id}|${termKey}`} id={doc.id} ext={doc.ext} terms={terms} />
                   )}
               </>
             ) : <div className="empty">Select a result to preview it.</div>}
