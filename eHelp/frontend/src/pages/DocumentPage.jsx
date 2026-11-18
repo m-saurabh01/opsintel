@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Calendar, Download, ExternalLink, Eye, FileText } from 'lucide-react'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
-import TextViewer from '../components/TextViewer.jsx'
+import FilePreview from '../components/FilePreview.jsx'
 import { FileIcon, formatDate, formatSize } from '../util.jsx'
 
 export default function DocumentPage() {
@@ -64,7 +64,7 @@ export default function DocumentPage() {
         <div className="viewer-col">
           {isPdf
             ? <PdfViewer url={api.fileUrl(doc.id)} downloadUrl={api.downloadUrl(doc.id)} page={page} />
-            : <TextViewer id={doc.id} />}
+            : <FilePreview id={doc.id} ext={doc.ext} />}
         </div>
         <aside className="info-col">
           <div className="panel">

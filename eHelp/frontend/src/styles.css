@@ -18,7 +18,7 @@ mark { background: #fde047; color: inherit; padding: 0 1px; border-radius: 2px; 
 
 /* shell */
 .shell { display: grid; grid-template-columns: var(--side) 1fr; grid-template-rows: var(--topbar) 1fr; height: 100vh; }
-.shell.collapsed { grid-template-columns: 0 1fr; }
+.shell.collapsed { grid-template-columns: 1fr; }
 .topbar { grid-column: 1 / -1; background: var(--sidebar); color: #fff; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .topbar .icon-btn { color: #fff; }
 .brand { display: flex; align-items: center; gap: 10px; color: #fff; }
@@ -218,3 +218,24 @@ mark { background: #fde047; color: inherit; padding: 0 1px; border-radius: 2px; 
 .modal { position: fixed; inset: 0; background: rgba(10,20,40,.55); display: grid; place-items: center; z-index: 50; padding: 20px; }
 .modal-card { background: #fff; border-radius: 14px; width: min(760px, 100%); max-height: 90vh; overflow: auto; padding: 16px 20px; }
 .modal-card .panel-head { margin: -16px -20px 14px; }
+
+.file-viewer { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-height: 200px; }
+.file-viewer .empty { padding: 28px; color: var(--muted, #5b6b82); }
+.preview-note { padding: 10px 16px; background: #fff7e0; border-bottom: 1px solid #f1dfa3; font-size: 13px; }
+.grid-wrap { overflow: auto; max-height: 76vh; }
+.grid { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.grid th, .grid td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+.grid thead th { position: sticky; top: 0; background: #eef3fa; z-index: 1; }
+.grid th.rownum { background: #eef3fa; color: #6b7a90; text-align: center; position: sticky; left: 0; width: 40px; }
+.grid tbody tr:nth-child(even) td { background: #f8fafd; }
+.grid-note { padding: 10px 14px; color: #6b7a90; font-size: 13px; }
+.sheet-tabs { display: flex; gap: 4px; padding: 8px 10px 0; background: #eef3fa; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.sheet-tabs button { border: 1px solid var(--line); border-bottom: 0; background: #fff; padding: 6px 14px; border-radius: 8px 8px 0 0; cursor: pointer; }
+.sheet-tabs button.on { color: var(--accent); font-weight: 700; }
+.docx-host { background: #e5e9ef; max-height: 78vh; overflow: auto; }
+.docx-host .docx-wrapper { padding: 16px; background: #e5e9ef; }
+.pptx-host { background: #e5e9ef; max-height: 78vh; overflow: auto; padding: 12px; }
+.pptx-host > div { margin: 0 auto 14px; }
+.plain-view { margin: 0; padding: 16px 20px; max-height: 76vh; overflow: auto; font: 13px/1.55 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+.pptx-host .pptx-preview-wrapper { height: auto !important; overflow: visible !important; }
+.pptx-host .pptx-preview-slide-wrapper { margin: 0 auto 14px !important; }

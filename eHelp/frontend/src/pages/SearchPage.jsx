@@ -4,6 +4,7 @@ import { Code, Download, ExternalLink, Search, Sparkles, X } from 'lucide-react'
 import { useApp } from '../App.jsx'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
+import FilePreview from '../components/FilePreview.jsx'
 import { FileIcon, FILE_TYPES, formatSize, Marked } from '../util.jsx'
 
 const PAGE_SIZE = 10
@@ -115,10 +116,7 @@ export default function SearchPage() {
                 {doc.ext === 'pdf'
                   ? <PdfViewer key={`${doc.id}-${previewPage}`} compact url={api.fileUrl(doc.id)} downloadUrl={api.downloadUrl(doc.id)} page={previewPage} />
                   : (
-                    <div className="preview-text">
-                      {selected.snippets.map((s, i) => <p key={i}><Marked text={s.text} /></p>)}
-                      <a className="btn primary" href={api.downloadUrl(doc.id)}><Download size={16} /> Download</a>
-                    </div>
+                    <FilePreview key={doc.id} id={doc.id} ext={doc.ext} />
                   )}
               </>
             ) : <div className="empty">Select a result to preview it.</div>}
