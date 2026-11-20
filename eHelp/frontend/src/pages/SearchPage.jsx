@@ -101,14 +101,6 @@ export default function SearchPage() {
         </div>
       </div>
       {error && <div className="error">{error}</div>}
-      {!q && (
-        <div className="landing-tips">
-          <span>Try</span>
-          {['hydraulic pressure', 'pre-flight inspection', 'torque values', 'safety warning'].map((t) => (
-            <button key={t} type="button" onClick={() => set({ q: t })}>{t}</button>
-          ))}
-        </div>
-      )}
       {data && (
         <div className={`split${showPreview ? '' : ' solo'}`}>
           <div className="results">
