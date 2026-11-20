@@ -23,6 +23,7 @@ from ehelp.db import DEFAULT_SETTINGS, connect, get_settings, init_db, tags_of, 
 from ehelp.indexing import VIDEO_EXTS, Indexer, mime_for, slugify
 from ehelp.parsers.registry import ParserRegistry
 from ehelp.search import MARK_CLOSE, MARK_OPEN, search_documents, tokens_of  # noqa: F401
+from ehelp.cache import CACHE_API_DEFAULT, CACHE_SEARCH, CACHE_DOC_META, set_cache_headers, set_etag
 
 SORTS = {
     "newest": "d.created_at DESC",
@@ -302,12 +303,17 @@ def create_app(config: Config | None = None) -> FastAPI:
             doc = doc_dict(get_doc(conn, hit.doc_id))
             items.append({"document": doc, "matches": hit.matches, "title_match": hit.title_match,
                           "snippets": hit.snippets})
-        return {"query": q, "mode": mode, "total": len(hits), "page": page, "page_size": page_size, "items": items,
+        result = {"query": q, "mode": mode, "total": len(hits), "page": page, "page_size": page_size, "items": items,
                 "mark": [MARK_OPEN, MARK_CLOSE]}
+        response = Response(json.dumps(result), media_type="application/json")
+        set_cache_headers(response, max_age=CACHE_SEARCH, public=False)
+        return response
 
     @app.get("/api/documents/{doc_id}")
     def document(doc_id: int, conn: sqlite3.Connection = Depends(db)):
-        return doc_dict(get_doc(conn, doc_id))
+        response = Response(json.dumps(doc_dict(get_doc(conn, doc_id))), media_type="application/json")
+        set_cache_headers(response, max_age=CACHE_DOC_META, public=True)
+        return response
 
     @app.post("/api/documents/{doc_id}/view", status_code=204)
     def record_view(doc_id: int, conn: sqlite3.Connection = Depends(db)):
