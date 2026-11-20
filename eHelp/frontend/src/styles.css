@@ -389,3 +389,11 @@ mark { background: #fde047; color: inherit; padding: 0 1px; border-radius: 2px; 
 .landing .filters select, .landing .seg { background: rgba(255,255,255,.95); box-shadow: 0 4px 14px rgba(11,36,71,.08); border-radius: 12px; padding-block: 10px; }
 .landing .seg { padding: 4px; }
 .landing .seg button { border-radius: 9px; }
+
+.confirm-body { display: flex; gap: 14px; align-items: flex-start; padding: 6px 0 4px; }
+.confirm-body p { margin: 0; line-height: 1.5; }
+.confirm-icon { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: #fee2e2; color: #b91c1c; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.modal-card:has(.confirm-body) { width: min(440px, 100%); }
+.btn.danger-solid { background: #dc2626; border-color: #dc2626; color: #fff; }
+.btn.danger-solid:hover { background: #b91c1c; }

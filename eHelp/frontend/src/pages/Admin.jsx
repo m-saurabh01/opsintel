@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, CheckCircle2, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Search, Trash2, Upload, UploadCloud, X, XCircle } from 'lucide-react'
+import { Check, CheckCircle2, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Search, Trash2, TriangleAlert, Upload, UploadCloud, X, XCircle } from 'lucide-react'
 import { useApp } from '../App.jsx'
 import { api } from '../api.js'
 import Pager from '../components/Pager.jsx'
@@ -27,6 +27,25 @@ function Modal({ title, onClose, children, wide }) {
         {children}
       </div>
     </div>
+  )
+}
+
+function ConfirmDialog({ title, message, confirmLabel = 'Delete', onConfirm, onClose }) {
+  const [busy, setBusy] = useState(false)
+  const go = async () => { setBusy(true); try { await onConfirm() } finally { setBusy(false); onClose() } }
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div className="confirm-body">
+        <div className="confirm-icon"><TriangleAlert size={24} /></div>
+        <p>{message}</p>
+      </div>
+      <div className="confirm-actions">
+        <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button type="button" className="btn danger-solid" onClick={go} disabled={busy} autoFocus>
+          {busy ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />} {confirmLabel}
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -302,8 +321,8 @@ function Documents({ categories }) {
   }, [q, cat, page, size, refresh])
   useEffect(() => { load() }, [load])
 
+  const [confirming, setConfirming] = useState(null)
   const remove = async (d) => {
-    if (!window.confirm(`Delete “${d.title}”? This removes the file permanently.`)) return
     await api.deleteDocument(d.id)
     load()
   }
@@ -336,7 +355,7 @@ function Documents({ categories }) {
                   <td className="row-actions">
                     <button className="icon-btn" title="Edit" onClick={() => setEditing(d)}><Pencil size={16} /></button>
                     <button className="icon-btn" title="Re-index" onClick={() => reindex(d)}><RefreshCw size={16} /></button>
-                    <button className="icon-btn danger" title="Delete" onClick={() => remove(d)}><Trash2 size={16} /></button>
+                    <button className="icon-btn danger" title="Delete" onClick={() => setConfirming(d)}><Trash2 size={16} /></button>
                   </td>
                 </tr>
               ))}
@@ -347,6 +366,10 @@ function Documents({ categories }) {
         <Pager page={page} total={data?.total || 0} pageSize={size} sizes={DOC_SIZES} noun="documents" onPage={setPage}
           onSize={(n) => { setSize(n); setPage(1) }} />
       </div>
+      {confirming && (
+        <ConfirmDialog title="Delete document" message={`Delete “${confirming.title}”? This removes the file permanently.`}
+          onConfirm={() => remove(confirming)} onClose={() => setConfirming(null)} />
+      )}
       {editing && <EditDialog doc={editing} categories={categories} onClose={() => setEditing(null)} onSaved={load} />}
     </>
   )
@@ -427,8 +450,8 @@ function Categories() {
   )
   const rows = filtered.slice((page - 1) * size, page * size)
 
+  const [confirming, setConfirming] = useState(null)
   const remove = async (c) => {
-    if (!window.confirm(`Delete category “${c.name}”? Its documents are kept but uncategorised.`)) return
     try { await api.deleteCategory(c.id); setNote(null); await refresh() } catch (err) { setNote({ error: true, text: err.message }) }
   }
 
@@ -453,7 +476,7 @@ function Categories() {
                 <td>{c.sort_order}</td>
                 <td className="row-actions">
                   <button className="icon-btn" title="Edit" onClick={() => setEditing(c)}><Pencil size={16} /></button>
-                  <button className="icon-btn danger" title="Delete" onClick={() => remove(c)}><Trash2 size={16} /></button>
+                  <button className="icon-btn danger" title="Delete" onClick={() => setConfirming(c)}><Trash2 size={16} /></button>
                 </td>
               </tr>
             ))}
@@ -463,6 +486,10 @@ function Categories() {
       </div>
       <Pager page={page} total={filtered.length} pageSize={size} sizes={CAT_SIZES} noun="categories" onPage={setPage}
         onSize={(n) => { setSize(n); setPage(1) }} />
+      {confirming && (
+        <ConfirmDialog title="Delete category" message={`Delete “${confirming.name}”? Its documents are kept but uncategorised.`}
+          onConfirm={() => remove(confirming)} onClose={() => setConfirming(null)} />
+      )}
       {editing && <CategoryDialog category={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={refresh} />}
     </div>
   )
