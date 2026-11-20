@@ -1,14 +1,104 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Pencil, RefreshCw, Trash2, Upload, X } from 'lucide-react'
+import { Check, CheckCircle2, Loader2, Pencil, Plus, RefreshCw, RotateCcw, Search, Trash2, Upload, UploadCloud, X, XCircle } from 'lucide-react'
 import { useApp } from '../App.jsx'
 import { api } from '../api.js'
-import { ICON_NAMES } from '../icons.jsx'
+import Pager from '../components/Pager.jsx'
+import { CategoryIcon, ICON_NAMES } from '../icons.jsx'
+import { applyColors, THEMES } from '../themes.js'
 import { FileIcon, formatDate, formatSize } from '../util.jsx'
 
 function Notice({ note }) {
   if (!note) return null
   return <div className={note.error ? 'error' : 'ok'}>{note.text}</div>
+}
+
+
+function Modal({ title, onClose, children, wide }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={`modal-card${wide ? ' wide' : ''}`}>
+        <div className="panel-head"><h3>{title}</h3><button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, required, hint, wide, children }) {
+  return (
+    <label className={`field${wide ? ' wide' : ''}`}>
+      <span className="field-label">{label}{required && <i className="req" title="Required">*</i>}</span>
+      {children}
+      {hint && <small className="hint">{hint}</small>}
+    </label>
+  )
+}
+
+function TagInput({ value, onChange, placeholder }) {
+  const [text, setText] = useState('')
+  const add = (raw) => {
+    const t = raw.trim().replace(/,$/, '').trim()
+    if (t && !value.some((v) => v.toLowerCase() === t.toLowerCase())) onChange([...value, t])
+    setText('')
+  }
+  return (
+    <div className="tag-input">
+      {value.map((t) => (
+        <span key={t} className="chip">{t}<button type="button" aria-label={`Remove ${t}`} onClick={() => onChange(value.filter((x) => x !== t))}><X size={12} /></button></span>
+      ))}
+      <input value={text} placeholder={value.length ? '' : placeholder}
+        onChange={(e) => (e.target.value.endsWith(',') ? add(e.target.value) : setText(e.target.value))}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); add(text) }
+          if (e.key === 'Backspace' && !text && value.length) onChange(value.slice(0, -1))
+        }}
+        onBlur={() => add(text)} />
+    </div>
+  )
+}
+
+function Dropzone({ files, onChange, disabled }) {
+  const [over, setOver] = useState(false)
+  const input = useRef(null)
+  const addFiles = (list) => {
+    const known = new Set(files.map((f) => `${f.name}|${f.size}`))
+    onChange([...files, ...[...list].filter((f) => !known.has(`${f.name}|${f.size}`))])
+  }
+  return (
+    <div>
+      <div className={`dropzone${over ? ' over' : ''}`} role="button" tabIndex={0}
+        onClick={() => input.current?.click()}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && input.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setOver(true) }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => { e.preventDefault(); setOver(false); if (!disabled) addFiles(e.dataTransfer.files) }}>
+        <UploadCloud size={30} />
+        <b>Drag files here or click to browse</b>
+        <small>PDF, DOCX, PPTX, XLSX, CSV, TXT and more · several files at once</small>
+        <input ref={input} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
+      </div>
+      {files.length > 0 && (
+        <ul className="file-list">
+          {files.map((f, i) => (
+            <li key={`${f.name}${f.size}`} className={f.state || ''}>
+              <FileIcon ext={f.name.split('.').pop().toLowerCase()} size={24} />
+              <span className="fname">{f.name}</span><small>{formatSize(f.size)}</small>
+              {f.state === 'busy' && <Loader2 size={16} className="spin" />}
+              {f.state === 'done' && <CheckCircle2 size={16} className="okc" />}
+              {f.state === 'error' && <span title={f.error}><XCircle size={16} className="errc" /></span>}
+              {!disabled && !f.state && <button type="button" className="icon-btn" aria-label="Remove file" onClick={() => onChange(files.filter((_, j) => j !== i))}><X size={14} /></button>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function RelatedPicker({ selfId, selected, onChange }) {
@@ -50,11 +140,14 @@ function RelatedPicker({ selfId, selected, onChange }) {
 
 function UploadForm({ categories, onDone }) {
   const [files, setFiles] = useState([])
-  const [form, setForm] = useState({ title: '', description: '', category_id: '', tags: '', revision: '' })
+  const [form, setForm] = useState({ title: '', description: '', category_id: '', revision: '' })
+  const [tags, setTags] = useState([])
   const [related, setRelated] = useState([])
+  const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState(null)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const mark = (name, patch) => setFiles((list) => list.map((f) => (f.name === name ? Object.assign(f, patch) : f)))
 
   const submit = async (e) => {
     e.preventDefault()
@@ -62,56 +155,64 @@ function UploadForm({ categories, onDone }) {
     setBusy(true)
     setNote(null)
     let done = 0
-    try {
-      for (const file of files) {
+    let failed = 0
+    for (const file of files) {
+      mark(file.name, { state: 'busy' })
+      try {
         const fd = new FormData()
         fd.append('file', file)
         if (files.length === 1 && form.title) fd.append('title', form.title)
         fd.append('description', form.description)
         if (form.category_id) fd.append('category_id', form.category_id)
-        fd.append('tags', form.tags)
+        fd.append('tags', tags.join(', '))
         fd.append('revision', form.revision)
         fd.append('related_ids', JSON.stringify(related))
         await api.uploadDocument(fd)
+        mark(file.name, { state: 'done' })
         done += 1
+      } catch (err) {
+        mark(file.name, { state: 'error', error: err.message })
+        failed += 1
       }
+    }
+    setBusy(false)
+    onDone()
+    if (!failed) {
       setNote({ text: `Uploaded ${done} document${done === 1 ? '' : 's'}.` })
-      setFiles([])
-      setForm({ title: '', description: '', category_id: form.category_id, tags: '', revision: '' })
-      setRelated([])
-      e.target.reset()
-      onDone()
-    } catch (err) {
-      setNote({ error: true, text: `${err.message}${done ? ` (${done} uploaded before the error)` : ''}` })
-      onDone()
-    } finally {
-      setBusy(false)
+      setFiles([]); setTags([]); setRelated([])
+      setForm((f) => ({ title: '', description: '', category_id: f.category_id, revision: '' }))
+    } else {
+      setFiles((list) => list.filter((f) => f.state === 'error').map((f) => { f.state = undefined; return f }))
+      setNote({ error: true, text: `${failed} file${failed === 1 ? '' : 's'} failed (${done} uploaded). Fix the problem and upload again.` })
     }
   }
 
   return (
     <form className="panel admin-form" onSubmit={submit}>
       <div className="panel-head"><h3><Upload size={18} /> Upload documents</h3></div>
-      <div className="form-grid">
-        <label className="wide">Files (PDF, DOCX, PPTX, XLSX, TXT, …)
-          <input type="file" multiple required onChange={(e) => setFiles([...e.target.files])} />
-        </label>
-        <label>Category
+      <Dropzone files={files} onChange={setFiles} disabled={busy} />
+      <div className="form-grid spaced">
+        <Field label="Category" hint="Stays selected between uploads, handy for batches.">
           <select value={form.category_id} onChange={set('category_id')}>
             <option value="">— none —</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-        </label>
-        <label>Title {files.length > 1 && <small>(file names are used for multi-upload)</small>}
-          <input value={form.title} onChange={set('title')} disabled={files.length > 1} placeholder="Defaults to the file name" />
-        </label>
-        <label>Revision<input value={form.revision} onChange={set('revision')} placeholder="Rev 4.2" /></label>
-        <label>Tags<input value={form.tags} onChange={set('tags')} placeholder="A320, Structure, Repair" /></label>
-        <label className="wide">Description<textarea value={form.description} onChange={set('description')} rows={2} /></label>
-        <div className="wide"><span className="label">Related documents</span><RelatedPicker selfId={0} selected={related} onChange={setRelated} /></div>
+        </Field>
+        <Field label="Title" hint={files.length > 1 ? 'File names are used as titles for multiple files.' : 'Optional – defaults to the file name.'}>
+          <input value={form.title} onChange={set('title')} disabled={files.length > 1} placeholder="e.g. A320 Structural Repair Manual" />
+        </Field>
+        <Field label="Tags" hint="Press Enter or comma to add."><TagInput value={tags} onChange={setTags} placeholder="A320, Structure, Repair" /></Field>
+        <Field label="Revision"><input value={form.revision} onChange={set('revision')} placeholder="Rev 4.2" /></Field>
       </div>
-      <div className="form-actions">
-        <button className="btn primary" disabled={busy || !files.length}>{busy ? 'Uploading & indexing…' : 'Upload'}</button>
+      <button type="button" className="link-btn" onClick={() => setOpen((o) => !o)}>{open ? '− Hide' : '+ Add'} description and related documents</button>
+      {open && (
+        <div className="form-grid spaced">
+          <Field label="Description" wide><textarea value={form.description} onChange={set('description')} rows={2} placeholder="Short summary shown on document cards" /></Field>
+          <div className="wide"><span className="field-label">Related documents</span><RelatedPicker selfId={0} selected={related} onChange={setRelated} /></div>
+        </div>
+      )}
+      <div className="form-actions sticky">
+        <button className="btn primary" disabled={busy || !files.length}>{busy ? 'Uploading & indexing…' : `Upload${files.length ? ` ${files.length} file${files.length === 1 ? '' : 's'}` : ''}`}</button>
         <Notice note={note} />
       </div>
     </form>
@@ -120,12 +221,13 @@ function UploadForm({ categories, onDone }) {
 
 function EditDialog({ doc, categories, onClose, onSaved }) {
   const [form, setForm] = useState({
-    title: doc.title, description: doc.description, category_id: doc.category_id ?? '',
-    tags: doc.tags.join(', '), revision: doc.revision,
+    title: doc.title, description: doc.description, category_id: doc.category_id ?? '', revision: doc.revision,
   })
+  const [tags, setTags] = useState(doc.tags)
   const [related, setRelated] = useState([])
   const [ready, setReady] = useState(false)
   const [note, setNote] = useState(null)
+  const [saving, setSaving] = useState(false)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
   useEffect(() => {
@@ -134,13 +236,14 @@ function EditDialog({ doc, categories, onClose, onSaved }) {
 
   const save = async (e) => {
     e.preventDefault()
+    setSaving(true)
     try {
       await api.updateDocument(doc.id, {
-        ...form, category_id: form.category_id === '' ? null : Number(form.category_id), related_ids: related,
+        ...form, tags: tags.join(', '), category_id: form.category_id === '' ? null : Number(form.category_id), related_ids: related,
       })
       onSaved()
       onClose()
-    } catch (err) { setNote({ error: true, text: err.message }) }
+    } catch (err) { setNote({ error: true, text: err.message }); setSaving(false) }
   }
 
   const replace = async (e) => {
@@ -154,42 +257,49 @@ function EditDialog({ doc, categories, onClose, onSaved }) {
   }
 
   return (
-    <div className="modal" role="dialog" aria-modal="true">
-      <form className="modal-card" onSubmit={save}>
-        <div className="panel-head"><h3>Edit document</h3><button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+    <Modal title="Edit document" onClose={onClose} wide>
+      <form onSubmit={save}>
         <div className="form-grid">
-          <label className="wide">Title<input value={form.title} onChange={set('title')} required /></label>
-          <label>Category
+          <Field label="Title" required wide><input value={form.title} onChange={set('title')} required autoFocus /></Field>
+          <Field label="Category">
             <select value={form.category_id} onChange={set('category_id')}>
               <option value="">— none —</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-          </label>
-          <label>Revision<input value={form.revision} onChange={set('revision')} /></label>
-          <label className="wide">Tags<input value={form.tags} onChange={set('tags')} /></label>
-          <label className="wide">Description<textarea rows={2} value={form.description} onChange={set('description')} /></label>
-          <label className="wide">Replace file<input type="file" onChange={replace} /></label>
-          <div className="wide"><span className="label">Related documents</span>
+          </Field>
+          <Field label="Revision"><input value={form.revision} onChange={set('revision')} /></Field>
+          <Field label="Tags" wide hint="Press Enter or comma to add."><TagInput value={tags} onChange={setTags} placeholder="Add a tag" /></Field>
+          <Field label="Description" wide><textarea rows={2} value={form.description} onChange={set('description')} /></Field>
+          <Field label="Replace file" wide hint="Uploads a new version and re-indexes it. Applies immediately."><input type="file" onChange={replace} /></Field>
+          <div className="wide"><span className="field-label">Related documents</span>
             {ready && <RelatedPicker selfId={doc.id} selected={related} onChange={setRelated} />}
           </div>
         </div>
-        <div className="form-actions"><button className="btn primary">Save changes</button><Notice note={note} /></div>
+        <div className="form-actions sticky">
+          <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <Notice note={note} />
+        </div>
       </form>
-    </div>
+    </Modal>
   )
 }
 
+const DOC_SIZES = [15, 30, 60]
+
 function Documents({ categories }) {
   const [q, setQ] = useState('')
+  const [cat, setCat] = useState('')
   const [data, setData] = useState(null)
   const [page, setPage] = useState(1)
+  const [size, setSize] = useState(DOC_SIZES[0])
   const [editing, setEditing] = useState(null)
   const { refresh } = useApp()
 
   const load = useCallback(() => {
-    api.documents({ q, page, page_size: 15, sort: 'modified' }).then(setData).catch(() => {})
+    api.documents({ q, category: cat || undefined, page, page_size: size, sort: 'modified' }).then(setData).catch(() => {})
     refresh()
-  }, [q, page, refresh])
+  }, [q, cat, page, size, refresh])
   useEffect(() => { load() }, [load])
 
   const remove = async (d) => {
@@ -203,37 +313,39 @@ function Documents({ categories }) {
     <>
       <UploadForm categories={categories} onDone={load} />
       <div className="panel">
-        <div className="panel-head">
+        <div className="panel-head list-head">
           <h3>Documents ({data?.total ?? '…'})</h3>
-          <input className="mini-search" value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Filter…" />
+          <select className="mini-search" value={cat} onChange={(e) => { setCat(e.target.value); setPage(1) }} aria-label="Filter by category">
+            <option value="">All categories</option>
+            {categories.map((c) => <option key={c.id} value={c.slug}>{c.name}</option>)}
+          </select>
+          <input className="mini-search" value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Filter by title…" />
         </div>
-        <table className="table">
-          <thead><tr><th></th><th>Title</th><th>Category</th><th>Size</th><th>Modified</th><th>Index</th><th></th></tr></thead>
-          <tbody>
-            {data?.items.map((d) => (
-              <tr key={d.id}>
-                <td><FileIcon ext={d.ext} size={28} /></td>
-                <td><Link to={`/doc/${d.id}`}>{d.title}</Link></td>
-                <td>{d.category || '—'}</td>
-                <td>{formatSize(d.size)}</td>
-                <td>{formatDate(d.updated_at)}</td>
-                <td><span className={`status ${d.index_status}`} title={d.index_error}>{d.index_status}</span></td>
-                <td className="row-actions">
-                  <button className="icon-btn" title="Edit" onClick={() => setEditing(d)}><Pencil size={16} /></button>
-                  <button className="icon-btn" title="Re-index" onClick={() => reindex(d)}><RefreshCw size={16} /></button>
-                  <button className="icon-btn danger" title="Delete" onClick={() => remove(d)}><Trash2 size={16} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {data && data.total > 15 && (
-          <div className="pager pad">
-            <button disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>
-            <span>{page} / {Math.ceil(data.total / 15)}</span>
-            <button disabled={page * 15 >= data.total} onClick={() => setPage(page + 1)}>›</button>
-          </div>
-        )}
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th></th><th>Title</th><th>Category</th><th>Size</th><th>Modified</th><th>Index</th><th></th></tr></thead>
+            <tbody>
+              {data?.items.map((d) => (
+                <tr key={d.id}>
+                  <td><FileIcon ext={d.ext} size={28} /></td>
+                  <td className="cell-title"><Link to={`/doc/${d.id}`} title={d.title}>{d.title}</Link></td>
+                  <td>{d.category || '—'}</td>
+                  <td>{formatSize(d.size)}</td>
+                  <td>{formatDate(d.updated_at)}</td>
+                  <td><span className={`status ${d.index_status}`} title={d.index_error}>{d.index_status}</span></td>
+                  <td className="row-actions">
+                    <button className="icon-btn" title="Edit" onClick={() => setEditing(d)}><Pencil size={16} /></button>
+                    <button className="icon-btn" title="Re-index" onClick={() => reindex(d)}><RefreshCw size={16} /></button>
+                    <button className="icon-btn danger" title="Delete" onClick={() => remove(d)}><Trash2 size={16} /></button>
+                  </td>
+                </tr>
+              ))}
+              {data?.items.length === 0 && <tr><td colSpan={7} className="muted pad">No documents found.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <Pager page={page} total={data?.total || 0} pageSize={size} sizes={DOC_SIZES} noun="documents" onPage={setPage}
+          onSize={(n) => { setSize(n); setPage(1) }} />
       </div>
       {editing && <EditDialog doc={editing} categories={categories} onClose={() => setEditing(null)} onSaved={load} />}
     </>
@@ -248,7 +360,7 @@ function ImageField({ label, value, onChange }) {
     onChange(url)
   }
   return (
-    <label className="wide">{label}
+    <label className="field wide"><span className="field-label">{label}</span>
       <span className="image-field">
         {value && <img src={value} alt="" />}
         <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="/img/… or upload" />
@@ -258,43 +370,101 @@ function ImageField({ label, value, onChange }) {
   )
 }
 
+const CAT_SIZES = [10, 25, 50]
+const EMPTY_CAT = { name: '', description: '', icon: 'folder', banner: '', sort_order: 0 }
+
+function CategoryDialog({ category, onClose, onSaved }) {
+  const [form, setForm] = useState(category ? { ...category } : EMPTY_CAT)
+  const [note, setNote] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const save = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const body = { name: form.name, description: form.description, icon: form.icon, banner: form.banner, sort_order: Number(form.sort_order) || 0 }
+      if (category) await api.updateCategory(category.id, body)
+      else await api.createCategory(body)
+      await onSaved()
+      onClose()
+    } catch (err) { setNote({ error: true, text: err.message }); setSaving(false) }
+  }
+  return (
+    <Modal title={category ? `Edit category` : 'New category'} onClose={onClose}>
+      <form onSubmit={save}>
+        <div className="form-grid">
+          <Field label="Name" required wide><input required autoFocus value={form.name} onChange={set('name')} placeholder="e.g. Avionics" /></Field>
+          <Field label="Icon">
+            <span className="icon-pick"><span className="icon-preview"><CategoryIcon name={form.icon} size={20} /></span>
+              <select value={form.icon} onChange={set('icon')}>{ICON_NAMES.map((n) => <option key={n}>{n}</option>)}</select>
+            </span>
+          </Field>
+          <Field label="Display order" hint="Lower numbers appear first."><input type="number" value={form.sort_order} onChange={set('sort_order')} /></Field>
+          <Field label="Description" wide hint="Shown under the category title."><input value={form.description} onChange={set('description')} /></Field>
+          <ImageField label="Banner image" value={form.banner} onChange={(v) => setForm((f) => ({ ...f, banner: v }))} />
+        </div>
+        <div className="form-actions sticky">
+          <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : category ? 'Save changes' : 'Add category'}</button>
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <Notice note={note} />
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 function Categories() {
   const { categories, refresh } = useApp()
-  const [draft, setDraft] = useState({ name: '', description: '', icon: 'folder' })
+  const [q, setQ] = useState('')
+  const [page, setPage] = useState(1)
+  const [size, setSize] = useState(CAT_SIZES[0])
+  const [editing, setEditing] = useState(null)
   const [note, setNote] = useState(null)
 
-  const run = async (fn) => {
-    try { await fn(); setNote(null); await refresh() } catch (err) { setNote({ error: true, text: err.message }) }
+  const filtered = useMemo(
+    () => categories.filter((c) => `${c.name} ${c.description}`.toLowerCase().includes(q.trim().toLowerCase())),
+    [categories, q],
+  )
+  const rows = filtered.slice((page - 1) * size, page * size)
+
+  const remove = async (c) => {
+    if (!window.confirm(`Delete category “${c.name}”? Its documents are kept but uncategorised.`)) return
+    try { await api.deleteCategory(c.id); setNote(null); await refresh() } catch (err) { setNote({ error: true, text: err.message }) }
   }
-  const patch = (c, body) => run(() => api.updateCategory(c.id, body))
 
   return (
-    <>
-      <form className="panel admin-form" onSubmit={(e) => { e.preventDefault(); run(async () => { await api.createCategory(draft); setDraft({ name: '', description: '', icon: 'folder' }) }) }}>
-        <div className="panel-head"><h3>New category</h3></div>
-        <div className="form-grid">
-          <label>Name<input required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-          <label>Icon<select value={draft.icon} onChange={(e) => setDraft({ ...draft, icon: e.target.value })}>{ICON_NAMES.map((n) => <option key={n}>{n}</option>)}</select></label>
-          <label className="wide">Description<input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label>
-        </div>
-        <div className="form-actions"><button className="btn primary">Add category</button><Notice note={note} /></div>
-      </form>
-      {categories.map((c) => (
-        <div key={c.id} className="panel admin-form">
-          <div className="form-grid">
-            <label>Name<input defaultValue={c.name} onBlur={(e) => e.target.value !== c.name && patch(c, { name: e.target.value })} /></label>
-            <label>Icon<select value={c.icon} onChange={(e) => patch(c, { icon: e.target.value })}>{ICON_NAMES.map((n) => <option key={n}>{n}</option>)}</select></label>
-            <label className="wide">Description<input defaultValue={c.description} onBlur={(e) => e.target.value !== c.description && patch(c, { description: e.target.value })} /></label>
-            <ImageField label="Banner image" value={c.banner} onChange={(v) => patch(c, { banner: v })} />
-            <label>Order<input type="number" defaultValue={c.sort_order} onBlur={(e) => patch(c, { sort_order: Number(e.target.value) })} /></label>
-          </div>
-          <div className="form-actions">
-            <span className="muted">{c.count} documents</span>
-            <button className="btn danger" onClick={() => window.confirm(`Delete category “${c.name}”? Its documents are kept but uncategorised.`) && run(() => api.deleteCategory(c.id))}>Delete</button>
-          </div>
-        </div>
-      ))}
-    </>
+    <div className="panel">
+      <div className="panel-head list-head">
+        <h3>Categories ({categories.length})</h3>
+        <input className="mini-search" value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Filter categories…" />
+        <button className="btn primary small" onClick={() => setEditing('new')}><Plus size={15} /> New category</button>
+      </div>
+      <Notice note={note} />
+      <div className="table-wrap">
+        <table className="table">
+          <thead><tr><th></th><th>Name</th><th>Description</th><th>Documents</th><th>Order</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((c) => (
+              <tr key={c.id}>
+                <td><span className="icon-preview"><CategoryIcon name={c.icon} size={18} /></span></td>
+                <td className="cell-title"><Link to={`/category/${c.slug}`}>{c.name}</Link></td>
+                <td className="cell-desc" title={c.description}>{c.description || '—'}</td>
+                <td>{c.count}</td>
+                <td>{c.sort_order}</td>
+                <td className="row-actions">
+                  <button className="icon-btn" title="Edit" onClick={() => setEditing(c)}><Pencil size={16} /></button>
+                  <button className="icon-btn danger" title="Delete" onClick={() => remove(c)}><Trash2 size={16} /></button>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={6} className="muted pad">No categories found.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <Pager page={page} total={filtered.length} pageSize={size} sizes={CAT_SIZES} noun="categories" onPage={setPage}
+        onSize={(n) => { setSize(n); setPage(1) }} />
+      {editing && <CategoryDialog category={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={refresh} />}
+    </div>
   )
 }
 
@@ -303,33 +473,105 @@ const TEXT_SETTINGS = [
   ['hero_title', 'Hero title'], ['hero_highlight', 'Hero highlighted line'], ['hero_text', 'Hero text'],
   ['search_placeholder', 'Search placeholder'],
 ]
-const COLOR_SETTINGS = [['accent_color', 'Accent'], ['highlight_color', 'Highlight'], ['sidebar_color', 'Sidebar']]
-const TOGGLES = [['show_category_tiles', 'Category tiles'], ['show_recent', 'Recent documents'], ['show_popular', 'Popular documents']]
+const COLOR_SETTINGS = [
+  ['accent_color', 'Accent', 'Buttons, links, active items'], ['highlight_color', 'Highlight', 'Hero emphasis'],
+  ['sidebar_color', 'Sidebar & top bar', 'Navigation background'], ['bg_color', 'Page background', 'Behind the cards'],
+]
+const TOGGLES = [['show_recent', 'Recent documents'], ['show_popular', 'Popular documents']]
+const SETTING_KEYS = ['theme', ...TEXT_SETTINGS.map(([k]) => k), 'logo', 'hero_image', ...COLOR_SETTINGS.map(([k]) => k), ...TOGGLES.map(([k]) => k)]
+const HEX = /^#[0-9a-f]{6}$/i
+
+function ColorField({ label, hint, value, onChange }) {
+  return (
+    <div className="color-field">
+      <input type="color" value={HEX.test(value) ? value : '#000000'} onChange={(e) => onChange(e.target.value)} aria-label={label} />
+      <span><b>{label}</b><small>{hint}</small></span>
+      <input className="hex" value={value} maxLength={7} onChange={(e) => onChange(e.target.value)} aria-label={`${label} hex`} />
+    </div>
+  )
+}
 
 function Appearance() {
   const { settings, refresh } = useApp()
   const [form, setForm] = useState(settings)
   const [note, setNote] = useState(null)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const setColor = (k) => (v) => setForm((f) => ({ ...f, [k]: v, theme: 'custom' }))
+  const dirty = SETTING_KEYS.some((k) => form[k] !== settings[k])
+
+  useEffect(() => {
+    applyColors(Object.fromEntries(COLOR_SETTINGS.map(([k]) => [k, HEX.test(form[k]) ? form[k] : settings[k]])))
+  }, [form, settings])
+  const settingsRef = useRef(settings)
+  useEffect(() => { settingsRef.current = settings }, [settings])
+  useEffect(() => () => applyColors(settingsRef.current), [])
+
+  const pick = (t) => setForm((f) => ({ ...f, theme: t.id, accent_color: t.accent, highlight_color: t.highlight, sidebar_color: t.sidebar, bg_color: t.bg }))
 
   const save = async (e) => {
     e.preventDefault()
-    try { await api.updateSettings(form); await refresh(); setNote({ text: 'Saved.' }) } catch (err) { setNote({ error: true, text: err.message }) }
+    try {
+      await api.updateSettings(Object.fromEntries(SETTING_KEYS.map((k) => [k, form[k]])))
+      await refresh()
+      setNote({ text: 'Saved. Changes are live for everyone.' })
+    } catch (err) { setNote({ error: true, text: err.message }) }
   }
+
   return (
     <form className="panel admin-form" onSubmit={save}>
-      <div className="form-grid">
-        {TEXT_SETTINGS.map(([k, label]) => <label key={k} className={k === 'hero_text' || k === 'search_placeholder' ? 'wide' : ''}>{label}<input value={form[k]} onChange={set(k)} /></label>)}
-        <ImageField label="Logo" value={form.logo} onChange={(v) => setForm((f) => ({ ...f, logo: v }))} />
-        <ImageField label="Hero image" value={form.hero_image} onChange={(v) => setForm((f) => ({ ...f, hero_image: v }))} />
-        {COLOR_SETTINGS.map(([k, label]) => <label key={k}>{label} colour<input type="color" value={form[k]} onChange={set(k)} /></label>)}
-        <div className="wide toggles">
-          {TOGGLES.map(([k, label]) => (
-            <label key={k} className="check"><input type="checkbox" checked={form[k] === '1'} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.checked ? '1' : '0' }))} /> Show {label}</label>
+      <section className="form-section">
+        <h4>Colour theme</h4>
+        <div className="theme-grid">
+          {THEMES.map((t) => (
+            <button type="button" key={t.id} className={`theme-card${form.theme === t.id ? ' selected' : ''}`} onClick={() => pick(t)}>
+              <span className="swatch" style={{ background: t.bg }}>
+                <i style={{ background: t.sidebar }} /><i style={{ background: t.accent }} /><i style={{ background: t.highlight }} />
+              </span>
+              <b>{t.name}</b>
+              {form.theme === t.id && <Check size={16} className="tick" />}
+            </button>
           ))}
+          <div className={`theme-card custom${form.theme === 'custom' ? ' selected' : ''}`}>
+            <span className="swatch" style={{ background: form.bg_color }}>
+              <i style={{ background: form.sidebar_color }} /><i style={{ background: form.accent_color }} /><i style={{ background: form.highlight_color }} />
+            </span>
+            <b>Custom</b>
+            {form.theme === 'custom' && <Check size={16} className="tick" />}
+          </div>
         </div>
+        <p className="hint">Pick a preset, then fine-tune any colour below. The whole app previews your choice live; nothing is saved until you press Save.</p>
+        <div className="color-grid">
+          {COLOR_SETTINGS.map(([k, label, hint]) => <ColorField key={k} label={label} hint={hint} value={form[k]} onChange={setColor(k)} />)}
+        </div>
+      </section>
+      <section className="form-section">
+        <h4>Branding</h4>
+        <div className="form-grid">
+          <Field label="Application name"><input value={form.app_name} onChange={set('app_name')} /></Field>
+          <Field label="Subtitle"><input value={form.subtitle} onChange={set('subtitle')} /></Field>
+          <ImageField label="Logo" value={form.logo} onChange={(v) => setForm((f) => ({ ...f, logo: v }))} />
+        </div>
+      </section>
+      <section className="form-section">
+        <h4>Home page</h4>
+        <div className="form-grid">
+          {TEXT_SETTINGS.slice(2).map(([k, label]) => (
+            <Field key={k} label={label} wide={k === 'hero_text' || k === 'search_placeholder'}><input value={form[k]} onChange={set(k)} /></Field>
+          ))}
+          <ImageField label="Hero image" value={form.hero_image} onChange={(v) => setForm((f) => ({ ...f, hero_image: v }))} />
+          <div className="wide toggles">
+            {TOGGLES.map(([k, label]) => (
+              <label key={k} className="check"><input type="checkbox" checked={form[k] === '1'} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.checked ? '1' : '0' }))} /> Show {label}</label>
+            ))}
+          </div>
+        </div>
+      </section>
+      <div className="form-actions sticky">
+        <button className="btn primary" disabled={!dirty}>Save appearance</button>
+        <button type="button" className="btn" disabled={!dirty} onClick={() => { setForm(settings); setNote(null) }}><RotateCcw size={14} /> Discard changes</button>
+        {dirty && <span className="muted">Unsaved changes</span>}
+        <Notice note={note} />
       </div>
-      <div className="form-actions"><button className="btn primary">Save appearance</button><Notice note={note} /></div>
     </form>
   )
 }

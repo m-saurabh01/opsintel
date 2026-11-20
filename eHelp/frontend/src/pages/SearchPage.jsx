@@ -5,9 +5,10 @@ import { useApp } from '../App.jsx'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
 import FilePreview from '../components/FilePreview.jsx'
+import Pager from '../components/Pager.jsx'
 import { FileIcon, FILE_TYPES, formatSize, Marked, termsOf } from '../util.jsx'
 
-const PAGE_SIZE = 10
+const SIZES = [10, 20, 50]
 
 export default function SearchPage() {
   const { categories } = useApp()
@@ -17,6 +18,7 @@ export default function SearchPage() {
   const category = params.get('category') || ''
   const type = params.get('type') || ''
   const page = Number(params.get('page') || 1)
+  const pageSize = SIZES.includes(Number(params.get('size'))) ? Number(params.get('size')) : SIZES[0]
   const [draft, setDraft] = useState(q)
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
@@ -39,13 +41,12 @@ export default function SearchPage() {
     if (!q) { setData(null); return undefined }
     let cancelled = false
     setError('')
-    api.search({ q, mode, category, type, page, page_size: PAGE_SIZE })
+    api.search({ q, mode, category, type, page, page_size: pageSize })
       .then((d) => { if (!cancelled) { setData(d); setSelected(d.items[0] || null); setPickedPage(0) } })
       .catch((e) => !cancelled && setError(e.message))
     return () => { cancelled = true }
-  }, [q, mode, category, type, page])
+  }, [q, mode, category, type, page, pageSize])
 
-  const pages = data ? Math.ceil(data.total / PAGE_SIZE) : 0
   const doc = selected?.document
   const previewPage = pickedPage || selected?.snippets?.find((s) => s.page)?.page || 1
   const choose = (item, pg = 0) => { setSelected(item); setPickedPage(pg) }
@@ -128,13 +129,8 @@ export default function SearchPage() {
                 ))}
               </div>
             ))}
-            {pages > 1 && (
-              <div className="pager">
-                <button disabled={page <= 1} onClick={() => set({ page: String(page - 1), q })}>‹</button>
-                <span>{page} / {pages}</span>
-                <button disabled={page >= pages} onClick={() => set({ page: String(page + 1), q })}>›</button>
-              </div>
-            )}
+            <Pager page={page} total={data.total} pageSize={pageSize} sizes={SIZES} noun="documents"
+              onPage={(p) => set({ page: String(p), q })} onSize={(n) => set({ size: n === SIZES[0] ? '' : String(n), q })} />
           </div>
           <div className="preview" hidden={!showPreview}>
             {doc ? (

@@ -4,28 +4,11 @@ import { Calendar, Filter, Grid2x2, List, Search, SortAsc } from 'lucide-react'
 import { useApp } from '../App.jsx'
 import { api } from '../api.js'
 import { DocCard, DocRow } from '../components/DocList.jsx'
+import Pager from '../components/Pager.jsx'
 import { CategoryIcon } from '../icons.jsx'
 import { bannerFor, FILE_TYPES } from '../util.jsx'
 
-const PAGE_SIZE = 12
-
-function Pager({ page, pages, onChange }) {
-  if (pages <= 1) return null
-  const items = []
-  for (let p = 1; p <= pages; p += 1) {
-    if (p === 1 || p === pages || Math.abs(p - page) <= 2) items.push(p)
-    else if (items[items.length - 1] !== '…') items.push('…')
-  }
-  return (
-    <div className="pager">
-      <button disabled={page <= 1} onClick={() => onChange(page - 1)}>‹</button>
-      {items.map((p, i) => (p === '…'
-        ? <span key={`g${i}`}>…</span>
-        : <button key={p} className={p === page ? 'active' : ''} onClick={() => onChange(p)}>{p}</button>))}
-      <button disabled={page >= pages} onClick={() => onChange(page + 1)}>›</button>
-    </div>
-  )
-}
+const SIZES = [12, 24, 48, 96]
 
 export default function Category({ all = false }) {
   const { slug } = useParams()
@@ -40,6 +23,7 @@ export default function Category({ all = false }) {
   const modified = params.get('modified') || ''
   const view = params.get('view') || 'grid'
   const page = Number(params.get('page') || 1)
+  const pageSize = SIZES.includes(Number(params.get('size'))) ? Number(params.get('size')) : SIZES[0]
   const q = params.get('q') || ''
   const [draft, setDraft] = useState(q)
 
@@ -56,19 +40,16 @@ export default function Category({ all = false }) {
     let cancelled = false
     setError('')
     api.documents({
-      category: all ? undefined : slug, q, type, sort, modified_days: modified, page, page_size: PAGE_SIZE,
+      category: all ? undefined : slug, q, type, sort, modified_days: modified, page, page_size: pageSize,
     }).then((d) => !cancelled && setData(d)).catch((e) => !cancelled && setError(e.message))
     return () => { cancelled = true }
-  }, [all, slug, q, type, sort, modified, page])
+  }, [all, slug, q, type, sort, modified, page, pageSize])
 
   if (!all && categories.length && !category) {
     return <div className="page"><h2>Category not found</h2><Link to="/">Go home</Link></div>
   }
 
   const title = all ? 'All Documents' : category?.name
-  const pages = data ? Math.ceil(data.total / PAGE_SIZE) : 1
-  const from = data && data.total ? (page - 1) * PAGE_SIZE + 1 : 0
-  const to = data ? Math.min(page * PAGE_SIZE, data.total) : 0
 
   return (
     <div className="category">
@@ -123,10 +104,8 @@ export default function Category({ all = false }) {
       {view === 'grid'
         ? <div className="cards">{data?.items.map((d) => <DocCard key={d.id} doc={d} />)}</div>
         : <div className="panel list-panel">{data?.items.map((d) => <DocRow key={d.id} doc={d} showViews />)}</div>}
-      <div className="footer-row">
-        <span className="muted">Showing {from} – {to} of {data?.total ?? 0} documents</span>
-        <Pager page={page} pages={pages} onChange={(p) => set({ page: String(p) })} />
-      </div>
+      <Pager page={page} total={data?.total || 0} pageSize={pageSize} sizes={SIZES} noun="documents"
+        onPage={(p) => set({ page: String(p) })} onSize={(n) => set({ size: n === SIZES[0] ? '' : String(n) })} />
     </div>
   )
 }

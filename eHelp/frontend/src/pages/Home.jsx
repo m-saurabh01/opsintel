@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRight, Clock, Search, TrendingUp } from 'lucide-react'
+import { Clock, Search, TrendingUp } from 'lucide-react'
 import { useApp, useGoSearch } from '../App.jsx'
 import { api } from '../api.js'
 import { DocRow } from '../components/DocList.jsx'
-import { CategoryIcon } from '../icons.jsx'
 
 export default function Home() {
   const { settings } = useApp()
@@ -32,18 +31,6 @@ export default function Home() {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={settings.search_placeholder} autoFocus />
           <button type="submit">Search</button>
         </form>
-        {settings.show_category_tiles === '1' && (
-          <div className="tiles">
-            {(data?.categories || []).slice(0, 6).map((c) => (
-              <Link key={c.id} to={`/category/${c.slug}`} className="tile">
-                <CategoryIcon name={c.icon} size={26} />
-                <b>{c.name}</b>
-                <small>{c.count} Documents</small>
-                <ChevronRight size={16} className="tile-arrow" />
-              </Link>
-            ))}
-          </div>
-        )}
       </section>
       <section className="panels">
         {settings.show_recent === '1' && (

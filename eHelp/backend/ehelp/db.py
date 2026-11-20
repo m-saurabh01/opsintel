@@ -81,12 +81,13 @@ DEFAULT_SETTINGS = {
     "search_placeholder": "Search across all documents, categories and keywords...",
     "logo": "/img/iaf_logo.png",
     "hero_image": "/img/hero.jpg",
+    "theme": "iaf",
     "accent_color": "#0b78d1",
     "highlight_color": "#22d3ee",
     "sidebar_color": "#0b2447",
+    "bg_color": "#eef3fa",
     "show_recent": "1",
     "show_popular": "1",
-    "show_category_tiles": "1",
 }
 
 
@@ -121,7 +122,8 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 def get_settings(conn: sqlite3.Connection) -> dict:
     values = dict(DEFAULT_SETTINGS)
-    values.update({r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings")})
+    values.update({r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings")
+                   if r["key"] in DEFAULT_SETTINGS})
     return values
 
 

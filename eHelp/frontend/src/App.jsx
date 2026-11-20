@@ -8,6 +8,7 @@ import Category from './pages/Category.jsx'
 import DocumentPage from './pages/DocumentPage.jsx'
 import Home from './pages/Home.jsx'
 import SearchPage from './pages/SearchPage.jsx'
+import { applyColors } from './themes.js'
 
 const AppContext = createContext(null)
 export const useApp = () => useContext(AppContext)
@@ -32,10 +33,7 @@ export default function App() {
 
   useEffect(() => {
     if (!settings) return
-    const root = document.documentElement.style
-    root.setProperty('--accent', settings.accent_color)
-    root.setProperty('--highlight', settings.highlight_color)
-    root.setProperty('--sidebar', settings.sidebar_color)
+    applyColors(settings)
     document.title = `${settings.app_name} – ${settings.subtitle}`
   }, [settings])
 
