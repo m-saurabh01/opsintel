@@ -327,7 +327,7 @@ mark { background: #fde047; color: inherit; padding: 0 1px; border-radius: 2px; 
 .hero .eyebrow { color: #cfe3ff; text-shadow: 0 1px 6px rgba(0,0,0,.5); }
 
 .cbt-video { width: 100%; max-height: 70vh; background: #000; border-radius: 8px; display: block; }
-.ai-panel { border: 1px solid var(--line); border-left: 4px solid var(--accent, #1f4e8c); border-radius: 10px; background: var(--card, #fff); padding: 14px 16px; margin: 0 0 16px; display: grid; gap: 10px; }
+.ai-panel { grid-template-columns: minmax(0, 1fr); min-width: 0; border: 1px solid var(--line); border-left: 4px solid var(--accent, #1f4e8c); border-radius: 10px; background: var(--card, #fff); padding: 14px 16px; margin: 0 0 16px; display: grid; gap: 10px; }
 .ai-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ai-head .btn { margin-left: auto; }
 .ai-text { margin: 0; line-height: 1.6; white-space: pre-wrap; }
@@ -373,3 +373,5 @@ mark { background: #fde047; color: inherit; padding: 0 1px; border-radius: 2px; 
 .md table { border-collapse: collapse; font-size: 14px; min-width: 50%; }
 .md th, .md td { border: 1px solid var(--line); padding: 6px 12px; text-align: left; }
 .md th { background: color-mix(in srgb, var(--accent) 8%, #fff); }
+.md { min-width: 0; overflow-wrap: anywhere; }
+.md pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; box-sizing: border-box; }
