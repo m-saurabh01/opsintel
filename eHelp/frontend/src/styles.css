@@ -18,7 +18,7 @@ mark { background: #fde047; color: inherit; padding: 0 1px; border-radius: 2px; 
 
 /* shell */
 .shell { display: grid; grid-template-columns: var(--side) 1fr; grid-template-rows: var(--topbar) 1fr; height: 100vh; }
-.shell.collapsed { grid-template-columns: 1fr; }
+.shell.collapsed { grid-template-columns: 64px 1fr; }
 .topbar { grid-column: 1 / -1; background: var(--sidebar); color: #fff; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .topbar .icon-btn { color: #fff; }
 .brand { display: flex; align-items: center; gap: 10px; color: #fff; }
@@ -33,7 +33,11 @@ mark { background: #fde047; color: inherit; padding: 0 1px; border-radius: 2px; 
 .icon-btn:hover { background: rgba(120,140,170,.15); }
 .icon-btn.danger:hover { color: #b91c1c; }
 .sidebar { overflow-y: auto; overscroll-behavior: contain; background: linear-gradient(180deg, var(--sidebar) 0%, color-mix(in srgb, var(--sidebar) 70%, #000) 100%); color: #dbe6f7; overflow: auto; padding: 14px 10px; }
-.collapsed .sidebar { display: none; }
+.collapsed .sidebar { padding: 14px 8px; }
+.collapsed .side-search input, .collapsed .side-name, .collapsed .count, .collapsed .side-title { display: none; }
+.collapsed .side-search { justify-content: center; padding: 8px 0; border-color: transparent; }
+.collapsed .side-link { justify-content: center; padding: 10px 0; }
+.collapsed .side-title { display: block; height: 1px; font-size: 0; background: rgba(255,255,255,.15); margin: 12px 8px; }
 .side-search { display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,.25); border-radius: 10px; padding: 8px 10px; margin-bottom: 14px; }
 .side-search input { background: none; border: 0; outline: 0; color: #fff; width: 100%; }
 .side-link { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; color: #dbe6f7; font-size: 14.5px; margin-bottom: 2px; }

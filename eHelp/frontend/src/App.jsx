@@ -66,17 +66,17 @@ export default function App() {
           )}
         </header>
         <aside className="sidebar">
-          <div className="side-search">
+          <div className="side-search" onClick={() => collapsed && setCollapsed(false)}>
             <Search size={16} />
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search categories..." />
           </div>
           <nav>
-            <NavLink to="/" end className="side-link"><HomeIcon size={18} /> Home</NavLink>
-            <NavLink to="/documents" className="side-link"><Layers size={18} /> All Documents</NavLink>
-            <NavLink to="/search" className="side-link"><Search size={18} /> Global Search</NavLink>
+            <NavLink to="/" end className="side-link" title="Home"><HomeIcon size={18} /><span className="side-name">Home</span></NavLink>
+            <NavLink to="/documents" className="side-link" title="All Documents"><Layers size={18} /><span className="side-name">All Documents</span></NavLink>
+            <NavLink to="/search" className="side-link" title="Global Search"><Search size={18} /><span className="side-name">Global Search</span></NavLink>
             <div className="side-title">DOCUMENT CATEGORIES</div>
             {visible.map((c) => (
-              <NavLink key={c.id} to={`/category/${c.slug}`} className="side-link">
+              <NavLink key={c.id} to={`/category/${c.slug}`} className="side-link" title={c.name}>
                 <CategoryIcon name={c.icon} size={18} />
                 <span className="side-name">{c.name}</span>
                 <span className="count">{c.count}</span>
