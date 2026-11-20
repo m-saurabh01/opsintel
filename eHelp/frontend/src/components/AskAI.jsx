@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bot, Loader2, Sparkles, X } from 'lucide-react'
 import { api } from '../api.js'
+import Markdown from './Markdown.jsx'
 
 async function* sse(res) {
   const reader = res.body.getReader()
@@ -20,21 +21,6 @@ async function* sse(res) {
       if (event && data) yield [event, JSON.parse(data)]
     }
   }
-}
-
-function Answer({ text, citations }) {
-  const byId = Object.fromEntries((citations || []).map((c) => [c.id, c]))
-  const parts = text.split(/(\[E\d+\])/g)
-  return (
-    <p className="ai-text">
-      {parts.map((p, i) => {
-        const id = /^\[(E\d+)\]$/.exec(p)?.[1]
-        const c = id && byId[id]
-        if (!c) return p
-        return <Link key={i} className="ai-cite" title={c.title} to={`/doc/${c.doc_id}${c.page ? `?page=${c.page}` : ''}`}>{id}</Link>
-      })}
-    </p>
-  )
 }
 
 export default function AskAI({ question, category, auto }) {
@@ -82,7 +68,7 @@ export default function AskAI({ question, category, auto }) {
           : <button type="button" className="btn primary small" onClick={ask}><Sparkles size={14} /> {phase === 'idle' ? 'Ask AI' : 'Ask again'}</button>}
       </div>
       {phase === 'running' && !text && <div className="ai-stage"><Loader2 size={14} className="spin" /> {stage}</div>}
-      {text && <Answer text={text} citations={citations} />}
+      {text && <Markdown text={text} citations={citations} />}
       {phase === 'done' && citations.length > 0 && (
         <div className="ai-sources">
           {citations.map((c) => (
