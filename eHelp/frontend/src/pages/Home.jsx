@@ -20,7 +20,8 @@ export default function Home() {
 
   return (
     <div className="home">
-      <section className="hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(6,20,45,.82) 0%, rgba(6,20,45,.35) 60%, rgba(6,20,45,.1) 100%), url(${settings.hero_image})` }}>
+      <section className="hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(6,20,45,.25) 0%, rgba(6,20,45,0) 60%), url(${settings.hero_image})` }} />
+      <section className="hero-body">
         <div className="hero-copy">
           <div className="eyebrow">{settings.hero_eyebrow}</div>
           <h1>{settings.hero_title}<br /><span>{settings.hero_highlight}</span></h1>

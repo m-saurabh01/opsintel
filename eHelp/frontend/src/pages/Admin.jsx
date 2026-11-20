@@ -314,7 +314,7 @@ function Documents({ categories }) {
       <UploadForm categories={categories} onDone={load} />
       <div className="panel">
         <div className="panel-head list-head">
-          <h3>Documents ({data?.total ?? '…'})</h3>
+          <h3>Documents</h3>
           <select className="mini-search" value={cat} onChange={(e) => { setCat(e.target.value); setPage(1) }} aria-label="Filter by category">
             <option value="">All categories</option>
             {categories.map((c) => <option key={c.id} value={c.slug}>{c.name}</option>)}
@@ -435,7 +435,7 @@ function Categories() {
   return (
     <div className="panel">
       <div className="panel-head list-head">
-        <h3>Categories ({categories.length})</h3>
+        <h3>Categories</h3>
         <input className="mini-search" value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Filter categories…" />
         <button className="btn primary small" onClick={() => setEditing('new')}><Plus size={15} /> New category</button>
       </div>

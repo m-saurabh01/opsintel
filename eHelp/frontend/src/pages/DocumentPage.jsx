@@ -83,7 +83,7 @@ export default function DocumentPage() {
           </div>
           <div className="panel">
             <div className="panel-head">
-              <h3>Related Documents ({related.length})</h3>
+              <h3>Related Documents</h3>
               {doc.category && <Link to={`/category/${doc.category_slug}`}>View All →</Link>}
             </div>
             {related.length === 0 && <p className="muted pad">No related documents.</p>}

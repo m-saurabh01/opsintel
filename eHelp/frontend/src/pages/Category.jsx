@@ -53,7 +53,7 @@ export default function Category({ all = false }) {
 
   return (
     <div className="category">
-      <div className="cat-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(240,246,255,.96) 35%, rgba(240,246,255,.2)), url(${all ? '/img/afimg5.jpg' : bannerFor(category)})` }}>
+      <div className="cat-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(240,246,255,.92) 25%, rgba(240,246,255,0) 65%), url(${all ? '/img/afimg5.jpg' : bannerFor(category)})` }}>
         <div className="crumbs"><Link to="/">Home</Link> / <span>{all ? 'Documents' : 'Categories'}</span>{!all && <> / <b>{title}</b></>}</div>
         <div className="cat-title">
           <span className="cat-icon"><CategoryIcon name={all ? 'layers' : category?.icon} size={32} /></span>
@@ -63,7 +63,7 @@ export default function Category({ all = false }) {
           </div>
         </div>
       </div>
-      <div className="tabs"><span className="tab active">Documents ({data?.total ?? '…'})</span></div>
+      <div className="tabs"><span className="tab active">Documents</span></div>
       <div className="toolbar">
         <form className="inline-search" onSubmit={(e) => { e.preventDefault(); set({ q: draft.trim() }) }}>
           <Search size={18} />
