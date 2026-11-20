@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
-import { Home as HomeIcon, Layers, Menu, Search, Settings as SettingsIcon } from 'lucide-react'
+import { Home as HomeIcon, Layers, Menu, Search, Sparkles, Settings as SettingsIcon } from 'lucide-react'
 import { api } from './api.js'
 import { CategoryIcon } from './icons.jsx'
 import Admin from './pages/Admin.jsx'
 import Category from './pages/Category.jsx'
 import DocumentPage from './pages/DocumentPage.jsx'
 import Home from './pages/Home.jsx'
+import AIPage from './pages/AIPage.jsx'
 import SearchPage from './pages/SearchPage.jsx'
 import { applyColors } from './themes.js'
 
@@ -74,6 +75,7 @@ export default function App() {
             <NavLink to="/" end className="side-link" title="Home"><HomeIcon size={18} /><span className="side-name">Home</span></NavLink>
             <NavLink to="/documents" className="side-link" title="All Documents"><Layers size={18} /><span className="side-name">All Documents</span></NavLink>
             <NavLink to="/search" className="side-link" title="Global Search"><Search size={18} /><span className="side-name">Global Search</span></NavLink>
+            {settings.ai_enabled === '1' && <NavLink to="/ai" className="side-link" title="AI Assistant"><Sparkles size={18} /><span className="side-name">AI Assistant</span></NavLink>}
             <div className="side-title">DOCUMENT CATEGORIES</div>
             {visible.map((c) => (
               <NavLink key={c.id} to={`/category/${c.slug}`} className="side-link" title={c.name}>
@@ -88,6 +90,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/search" element={<SearchPage />} />
+            <Route path="/ai" element={<AIPage />} />
             <Route path="/documents" element={<Category all />} />
             <Route path="/category/:slug" element={<Category />} />
             <Route path="/doc/:id" element={<DocumentPage />} />

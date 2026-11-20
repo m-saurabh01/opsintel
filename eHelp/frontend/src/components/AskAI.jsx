@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bot, Loader2, Sparkles, X } from 'lucide-react'
 import { api } from '../api.js'
@@ -37,13 +37,12 @@ function Answer({ text, citations }) {
   )
 }
 
-export default function AskAI({ question }) {
+export default function AskAI({ question, auto }) {
   const [state, setState] = useState({ phase: 'idle', text: '', stage: '', citations: [], warning: '', error: '' })
   const ctl = useRef(null)
   useEffect(() => () => ctl.current?.abort(), [])
-  useEffect(() => { ctl.current?.abort(); setState({ phase: 'idle', text: '', stage: '', citations: [], warning: '', error: '' }) }, [question])
-
-  const ask = async () => {
+  
+  const ask = useCallback(async () => {
     ctl.current?.abort()
     ctl.current = new AbortController()
     setState({ phase: 'running', text: '', stage: 'Starting…', citations: [], warning: '', error: '' })
@@ -64,7 +63,13 @@ export default function AskAI({ question }) {
     } catch (e) {
       if (e.name !== 'AbortError') setState((s) => ({ ...s, phase: 'error', error: e.message }))
     }
-  }
+  }, [question])
+
+  useEffect(() => {
+    ctl.current?.abort()
+    setState({ phase: 'idle', text: '', stage: '', citations: [], warning: '', error: '' })
+    if (auto && question) ask()
+  }, [question, auto, ask])
 
   const { phase, text, stage, citations, warning, error } = state
   return (
