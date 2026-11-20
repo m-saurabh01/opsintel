@@ -66,10 +66,20 @@ export default function SearchPage() {
   }) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="search-page">
-      <PageBanner image="/img/tejas3.jpg" icon={<Search size={32} />} title="Global Search">
-        Search source documents and technical manuals across all indexed files.
-      </PageBanner>
+    <div className={`search-page${q ? '' : ' landing'}`}>
+      {q ? (
+        <PageBanner image="/img/tejas3.jpg" icon={<Search size={32} />} title="Global Search">
+          Search source documents and technical manuals across all indexed files.
+        </PageBanner>
+      ) : (
+        <div className="landing-head">
+          <div className="banner-icon"><Search size={36} /></div>
+          <div className="banner-text">
+            <h1>Global Search</h1>
+            <p>Search source documents and technical manuals across all indexed files.</p>
+          </div>
+        </div>
+      )}
       <form className="search-bar" onSubmit={(e) => { e.preventDefault(); set({ q: draft.trim() }) }}>
         <Search size={18} />
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Search documents..." autoFocus />
@@ -91,7 +101,14 @@ export default function SearchPage() {
         </div>
       </div>
       {error && <div className="error">{error}</div>}
-      {!q && <div className="empty">Type a word or phrase to search inside every indexed document.</div>}
+      {!q && (
+        <div className="landing-tips">
+          <span>Try</span>
+          {['hydraulic pressure', 'pre-flight inspection', 'torque values', 'safety warning'].map((t) => (
+            <button key={t} type="button" onClick={() => set({ q: t })}>{t}</button>
+          ))}
+        </div>
+      )}
       {data && (
         <div className={`split${showPreview ? '' : ' solo'}`}>
           <div className="results">
