@@ -336,3 +336,8 @@ mark { background: #fde047; color: inherit; padding: 0 1px; border-radius: 2px; 
 .ai-sources { display: flex; flex-wrap: wrap; gap: 8px; }
 .ai-sources a { font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; text-decoration: none; color: inherit; }
 .ai-sources a span { font-weight: 700; color: var(--accent, #1f4e8c); }
+.ai-compose { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 2px 10px rgba(11,36,71,.06); margin: 0 0 16px; overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+.ai-compose:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.ai-compose textarea { width: 100%; border: 0; outline: 0; resize: none; padding: 16px 18px 6px; font: inherit; font-size: 16px; line-height: 1.5; background: transparent; color: var(--text); box-sizing: border-box; }
+.ai-compose-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px 12px 18px; }
+.ai-compose-bar .hint { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
