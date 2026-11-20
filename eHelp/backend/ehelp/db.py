@@ -74,7 +74,7 @@ DEFAULT_CATEGORIES = [
 
 DEFAULT_SETTINGS = {
     "app_name": "eHelp",
-    "subtitle": "Air Force Document Intelligence",
+    "subtitle": "Document Intelligence Platform",
     "hero_eyebrow": "WELCOME TO EHELP",
     "hero_title": "Every Document.",
     "hero_highlight": "One Destination.",

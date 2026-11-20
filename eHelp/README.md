@@ -1,6 +1,6 @@
 # eHelp README
 
-**eHelp** is an *Air Force Document Intelligence* platform—a login-free, offline-capable document portal for indexed PDF, DOCX, XLSX, PPTX, TXT, and video files.
+**eHelp** is a login-free, offline-capable document portal for indexed PDF, DOCX, XLSX, PPTX, TXT, and video files.
 
 ## Features
 
@@ -11,7 +11,7 @@
 - **CBT Support**: Upload and play training videos alongside documents
 - **Offline Capable**: Service Worker caches searches, PDFs, and static assets
 - **Admin Panel**: Bulk upload, categorize, manage AI settings, customize theme
-- **Air Force Theme**: Dark IAF-inspired design with custom branding
+- **Professional Theme**: Dark-inspired design with custom branding
 
 ## Quick Start
 
@@ -226,5 +226,5 @@ For offline deployments or airgapped environments, see:
 
 ---
 
-**eHelp** | Air Force Document Intelligence  
+**eHelp** | Document Intelligence Platform  
 Built with ❤️ for mission-critical operations.

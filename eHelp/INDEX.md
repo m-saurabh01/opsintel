@@ -291,5 +291,5 @@ Refer to:
 
 ---
 
-**eHelp** | Air Force Document Intelligence  
+**eHelp** | Document Intelligence Platform  
 *Ready for production deployment.*

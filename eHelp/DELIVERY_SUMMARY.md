@@ -2,9 +2,9 @@
 
 ## Project Status: **COMPLETE** ✓
 
-eHelp ("Air Force Document Intelligence") is a production-ready, offline-capable document portal with:
+eHelp is a production-ready, offline-capable document portal with:
 - **1000-3000 concurrent user capacity** (single machine to multi-machine scaling)
-- **Air Force theme** with customizable branding
+- **Professional theme** with customizable branding
 - **Full-text search** across indexed files
 - **In-app file previews** (PDF, DOCX, XLSX, PPTX, TXT, CSV, images, video)
 - **AI Assistant** with document retrieval and cited answers
@@ -209,7 +209,7 @@ Target modern browsers only. Code uses:
 - ✓ Global full-text search
 - ✓ Category browsing
 - ✓ Document admin panel
-- ✓ Air Force theme (customizable)
+- ✓ Professional theme (customizable)
 
 ### File Support
 - ✓ PDF (inline viewer with text extraction)
@@ -366,11 +366,11 @@ The application has been built, tested, and documented for:
 - Offline Windows deployment (Windows Service)
 - RHEL/Docker deployment (airgapped environments)
 - 1000-3000 concurrent user capacity (scaling guide)
-- Professional UI/UX (Air Force theme, confirm dialogs, responsive design)
+- Professional UI/UX (confirm dialogs, responsive design)
 
 All five requested deliverables are complete with comprehensive guides and automation.
 
 ---
 
-**eHelp** | Air Force Document Intelligence  
+**eHelp** | Document Intelligence Platform  
 Built with performance, security, and offline-first design.
