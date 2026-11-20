@@ -1,0 +1,43 @@
+# RHEL 9 based eHelp deployment image
+FROM registry.access.redhat.com/ubi9/ubi:9.1
+
+LABEL maintainer="eHelp Team" \
+      description="eHelp - Air Force Document Intelligence"
+
+# Install system dependencies
+RUN dnf install -y --nodocs \
+    python3.11 python3.11-pip \
+    nodejs npm \
+    sqlite \
+    curl \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+# Create app directory
+WORKDIR /opt/ehelp
+
+# Copy backend
+COPY eHelp/backend /opt/ehelp/backend
+WORKDIR /opt/ehelp/backend
+
+# Install Python dependencies
+RUN pip install --no-cache-dir uv && \
+    uv pip install --system -r pyproject.toml
+
+# Copy frontend build output
+COPY eHelp/frontend/dist /opt/ehelp/static
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8123/api/status || exit 1
+
+# Expose port
+EXPOSE 8123
+
+# Create data directory
+RUN mkdir -p /data && chmod 777 /data
+
+# Run eHelp
+ENV EHELP_DATA_DIR=/data
+ENV EHELP_STATIC_DIR=/opt/ehelp/static
+CMD ["python3.11", "-m", "uvicorn", "ehelp.app:app", "--host", "0.0.0.0", "--port", "8123", "--workers", "4"]
