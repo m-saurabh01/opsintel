@@ -122,3 +122,39 @@ def test_upload_limits_and_bad_input(client, upload):
     assert upload("a.txt", b"x", related_ids="oops").status_code == 422
     assert client.get("/api/search", params={"q": "!!!"}).json()["total"] == 0
     assert json.loads(json.dumps(client.get("/api/home").json()))["total"] == 0
+
+
+def test_cbt_video_upload_and_range(client, upload):
+    data = bytes(range(256)) * 40
+    doc = upload("Cockpit Drill.mp4", data, title="Cockpit Drill CBT").json()
+    assert doc["ext"] == "mp4" and doc["index_status"] == "indexed"
+    full = client.get(f"/api/documents/{doc['id']}/file")
+    assert full.headers["content-type"] == "video/mp4"
+    part = client.get(f"/api/documents/{doc['id']}/file", headers={"range": "bytes=0-99"})
+    assert part.status_code == 206 and part.content == data[:100]
+    assert client.get("/api/search", params={"q": "cockpit"}).json()["total"] == 1
+
+
+def test_ai_mode_toggle_and_daily_limit(client, upload, monkeypatch):
+    from ehelp import ai
+
+    upload("fuel.txt", b"The fuel pump pressure limit is 45 psi during taxi.")
+    body = {"question": "What is the fuel pump pressure limit?"}
+    assert client.post("/api/ai/ask", json=body).status_code == 403
+    client.put("/api/admin/settings", headers=ADMIN, json={"ai_enabled": "1", "ai_daily_limit": "1"})
+
+    async def fake_status(*_a, **_k):
+        return {"reachable": True, "model_present": True}
+
+    async def fake_generate(*_a, **_k):
+        yield "It is 45 psi [E1].", None
+        yield "", "stop"
+
+    monkeypatch.setattr(ai, "status", fake_status)
+    monkeypatch.setattr(ai, "generate", fake_generate)
+    out = client.post("/api/ai/ask", json=body)
+    assert out.status_code == 200 and "event: done" in out.text and '"title": "fuel"' in out.text
+    assert client.post("/api/ai/ask", json=body).status_code == 429
+    assert client.get("/api/ai/status").json()["remaining"] == 0
+    client.put("/api/admin/settings", headers=ADMIN, json={"ai_daily_limit": "0"})
+    assert client.post("/api/ai/ask", json=body).status_code == 200

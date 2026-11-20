@@ -20,7 +20,11 @@ MIME = {
     "xls": "application/vnd.ms-excel",
     "csv": "text/csv",
     "txt": "text/plain",
+    "mp4": "video/mp4",
+    "m4v": "video/mp4",
+    "webm": "video/webm",
 }
+VIDEO_EXTS = {"mp4", "m4v", "webm"}
 
 
 def mime_for(ext: str) -> str:
@@ -42,9 +46,11 @@ class Indexer:
         self.sandbox = ParserSandbox(timeout_s)
 
     def index_document(self, doc_id: int, path: Path, ext: str) -> None:
-        parser = self.registry.for_extension(ext)
+        parser = None if ext in VIDEO_EXTS else self.registry.for_extension(ext)
         status, error, chunks, page_count = "indexed", "", [], None
-        if parser is None:
+        if ext in VIDEO_EXTS:
+            pass  # CBT videos are found through title, description and tags
+        elif parser is None:
             status, error = "unsupported", f"no text extraction for .{ext}; file is stored and downloadable"
         else:
             try:

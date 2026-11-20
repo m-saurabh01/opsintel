@@ -35,6 +35,8 @@ export const api = {
   document: (id) => request(`/api/documents/${id}`),
   related: (id) => request(`/api/documents/${id}/related`),
   text: (id, offset = 0) => request(`/api/documents/${id}/text${qs({ offset, limit: 100 })}`),
+  aiStatus: () => request('/api/ai/status'),
+  aiAsk: (question, signal) => fetch('/api/ai/ask', { ...json('POST', { question }), signal }),
   search: (params) => request(`/api/search${qs(params)}`),
   recordView: (id) => fetch(`/api/documents/${id}/view`, { method: 'POST' }).catch(() => {}),
   fileUrl: (id) => `/api/documents/${id}/file`,

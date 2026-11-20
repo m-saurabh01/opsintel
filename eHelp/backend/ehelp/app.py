@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import re
@@ -11,13 +12,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 
+from ehelp import ai
 from ehelp.auth import User, current_user, require_admin
 from ehelp.config import Config, load_config
 from ehelp.db import DEFAULT_SETTINGS, connect, get_settings, init_db, tags_of, transaction
-from ehelp.indexing import Indexer, mime_for, slugify
+from ehelp.indexing import VIDEO_EXTS, Indexer, mime_for, slugify
 from ehelp.parsers.registry import ParserRegistry
 from ehelp.search import MARK_CLOSE, MARK_OPEN, search_documents, tokens_of  # noqa: F401
 
@@ -29,7 +32,8 @@ SORTS = {
     "popular": "d.views DESC, d.created_at DESC",
     "size": "d.size DESC",
 }
-INLINE_TYPES = {"pdf": "application/pdf", "txt": "text/plain; charset=utf-8"}
+INLINE_TYPES = {"pdf": "application/pdf", "txt": "text/plain; charset=utf-8", "mp4": "video/mp4",
+                "m4v": "video/mp4", "webm": "video/webm"}
 IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif"}
 DOC_SELECT = ("SELECT d.*, c.name AS category_name, c.slug AS category_slug "
               "FROM documents d LEFT JOIN categories c ON c.id = d.category_id")
@@ -109,6 +113,13 @@ def create_app(config: Config | None = None) -> FastAPI:
         unknown = set(body) - set(DEFAULT_SETTINGS)
         if unknown:
             raise HTTPException(422, f"Unknown settings: {', '.join(sorted(unknown))}")
+        if "ai_daily_limit" in body:
+            try:
+                body["ai_daily_limit"] = str(max(0, int(body["ai_daily_limit"])))
+            except (TypeError, ValueError):
+                raise HTTPException(422, "AI daily limit must be a whole number (0 = unlimited)") from None
+        if "ai_enabled" in body:
+            body["ai_enabled"] = "1" if str(body["ai_enabled"]) in ("1", "true", "True") else "0"
         with transaction(conn):
             for key, value in body.items():
                 conn.execute("INSERT INTO settings(key, value) VALUES (?, ?) "
@@ -126,6 +137,81 @@ def create_app(config: Config | None = None) -> FastAPI:
         return {"url": f"/uploads/{name}"}
 
     # ---------- categories ----------
+    # ---------- AI mode ----------
+    ai_state = {"waiting": 0}
+    ai_gate = asyncio.Semaphore(1)
+
+    @app.get("/api/ai/status")
+    async def ai_status(conn: sqlite3.Connection = Depends(db)):
+        cfg = get_settings(conn)
+        enabled = cfg["ai_enabled"] == "1"
+        limit = int(cfg["ai_daily_limit"] or 0)
+        used = ai.usage_today(conn)
+        out = {"enabled": enabled, "limit": limit, "used": used,
+               "remaining": None if not limit else max(0, limit - used)}
+        if enabled:
+            out.update(await ai.status(config.ollama_url, config.ollama_model))
+        return out
+
+    class AskBody(BaseModel):
+        question: str
+        category: str | None = None
+
+    @app.post("/api/ai/ask")
+    async def ai_ask(body: AskBody, conn: sqlite3.Connection = Depends(db)):
+        cfg = get_settings(conn)
+        if cfg["ai_enabled"] != "1":
+            raise HTTPException(403, "AI mode is turned off by the administrator")
+        question = body.question.strip()
+        if len(question) < 3:
+            raise HTTPException(422, "Question must contain at least 3 characters")
+        st = await ai.status(config.ollama_url, config.ollama_model)
+        if not st["reachable"]:
+            raise HTTPException(503, "The AI engine (Ollama) is not reachable")
+        if not st["model_present"]:
+            raise HTTPException(503, f"AI model '{config.ollama_model}' is not installed")
+        if ai_state["waiting"] >= config.ai_max_queue:
+            raise HTTPException(429, "AI is busy; try again in a moment")
+        try:
+            ai.reserve_request(conn, int(cfg["ai_daily_limit"] or 0))
+        except ai.AILimitReached:
+            raise HTTPException(429, "The daily AI request limit has been reached") from None
+        evidence = ai.retrieve(conn, question, config.ai_top_k, config.ai_context_chars)
+
+        def sse(event: str, data: dict) -> str:
+            return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        async def stream():
+            if not evidence:
+                yield sse("done", {"answer": ai.INSUFFICIENT, "citations": [], "citation_warning": None})
+                return
+            ai_state["waiting"] += 1
+            try:
+                async with ai_gate:
+                    yield sse("stage", {"stage": "generating"})
+                    parts: list[str] = []
+                    reason = None
+                    async for token, done in ai.generate(
+                            config.ollama_url, config.ollama_model, ai.build_prompt(question, evidence),
+                            config.ai_num_ctx, config.ai_max_tokens, config.ai_timeout_s, "10m"):
+                        if done:
+                            reason = done
+                        else:
+                            parts.append(token)
+                            yield sse("token", {"text": token})
+                    result = ai.validate("".join(parts), evidence)
+                    if reason == "length":
+                        result["citation_warning"] = ((result["citation_warning"] or "") +
+                                                      " The model reached its output limit; the answer may be incomplete.").strip()
+                    yield sse("done", result)
+            except Exception as exc:  # noqa: BLE001 - report any engine failure to the client
+                yield sse("error", {"message": f"{type(exc).__name__}: {exc}"[:300]})
+            finally:
+                ai_state["waiting"] -= 1
+
+        return StreamingResponse(stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
+
     @app.get("/api/categories")
     def list_categories(conn: sqlite3.Connection = Depends(db)):
         return categories_with_counts(conn)

@@ -576,6 +576,54 @@ function Appearance() {
   )
 }
 
+function AiSettings() {
+  const { settings, refresh } = useApp()
+  const [enabled, setEnabled] = useState(settings.ai_enabled === '1')
+  const [limit, setLimit] = useState(settings.ai_daily_limit)
+  const [status, setStatus] = useState(null)
+  const [note, setNote] = useState(null)
+  const load = useCallback(() => api.aiStatus().then(setStatus).catch(() => {}), [])
+  useEffect(() => { load() }, [load])
+  const dirty = enabled !== (settings.ai_enabled === '1') || limit !== settings.ai_daily_limit
+  const save = async (e) => {
+    e.preventDefault()
+    if (!/^\d+$/.test(String(limit))) { setNote({ error: true, text: 'Limit must be a whole number (0 = unlimited).' }); return }
+    try {
+      await api.updateSettings({ ai_enabled: enabled ? '1' : '0', ai_daily_limit: String(limit) })
+      await refresh(); await load()
+      setNote({ text: 'AI settings saved.' })
+    } catch (err) { setNote({ error: true, text: err.message }) }
+  }
+  return (
+    <form className="panel admin-form" onSubmit={save}>
+      <section className="form-section">
+        <h4>AI mode</h4>
+        <div className="form-grid">
+          <div className="wide toggles">
+            <label className="check"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Enable AI assistant for all users</label>
+          </div>
+          <Field label="Daily request limit" hint="Total AI questions allowed per day across all users. 0 = unlimited.">
+            <input type="number" min="0" value={limit} onChange={(e) => setLimit(e.target.value)} />
+          </Field>
+          {status && (
+            <div className="field wide">
+              <span className="field-label">Status</span>
+              <small className="hint">
+                Today: {status.used} used{status.limit ? `, ${status.remaining} remaining of ${status.limit}` : ' (no limit)'} ·
+                {' '}Model server: {!status.enabled ? 'checked when AI is on' : status.reachable ? (status.model_present ? 'ready' : 'reachable, model missing') : 'unreachable'}
+              </small>
+            </div>
+          )}
+        </div>
+      </section>
+      <div className="form-actions sticky">
+        <button className="btn primary" disabled={!dirty}>Save AI settings</button>
+        <Notice note={note} />
+      </div>
+    </form>
+  )
+}
+
 export default function Admin() {
   const { me, categories } = useApp()
   const [tab, setTab] = useState('documents')
@@ -586,13 +634,14 @@ export default function Admin() {
     <div className="page admin">
       <h1>Administration</h1>
       <div className="tabs">
-        {[['documents', 'Documents'], ['categories', 'Categories'], ['appearance', 'Appearance']].map(([k, label]) => (
+        {[['documents', 'Documents'], ['categories', 'Categories'], ['appearance', 'Appearance'], ['ai', 'AI Mode']].map(([k, label]) => (
           <button key={k} className={`tab${tab === k ? ' active' : ''}`} onClick={() => setTab(k)}>{label}</button>
         ))}
       </div>
       {tab === 'documents' && <Documents categories={categories} />}
       {tab === 'categories' && <Categories />}
       {tab === 'appearance' && <Appearance />}
+      {tab === 'ai' && <AiSettings />}
     </div>
   )
 }

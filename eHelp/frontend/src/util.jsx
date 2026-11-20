@@ -1,4 +1,4 @@
-import { File, FileSpreadsheet, FileText, Presentation } from 'lucide-react'
+import { File, FileSpreadsheet, FileText, Presentation, Video } from 'lucide-react'
 
 export function formatSize(bytes) {
   if (bytes == null) return ''
@@ -29,6 +29,9 @@ const KINDS = {
   ppt: { label: 'PPT', color: '#d9772b', icon: Presentation },
   pptx: { label: 'PPTX', color: '#d9772b', icon: Presentation },
   txt: { label: 'TXT', color: '#64748b', icon: FileText },
+  mp4: { label: 'CBT', color: '#7c3aed', icon: Video },
+  m4v: { label: 'CBT', color: '#7c3aed', icon: Video },
+  webm: { label: 'CBT', color: '#7c3aed', icon: Video },
 }
 
 export function FileIcon({ ext, size = 44 }) {
@@ -42,7 +45,9 @@ export function FileIcon({ ext, size = 44 }) {
   )
 }
 
-export const FILE_TYPES = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'csv', 'txt']
+export const FILE_TYPES = ['pdf', 'docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls', 'csv', 'txt', 'mp4', 'webm']
+export const VIDEO_EXTS = ['mp4', 'm4v', 'webm']
+export const isVideo = (ext) => VIDEO_EXTS.includes((ext || '').toLowerCase())
 
 export const BANNERS = ['afimg4', 'iaf_img12', 'afimg9', 'afimg10', 'tejas5', 'an32', 'afimg7', 'iaf_img14']
 

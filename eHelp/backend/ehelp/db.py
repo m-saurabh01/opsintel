@@ -60,6 +60,7 @@ CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
     INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
 END;
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS ai_usage (day TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0);
 """
 
 DEFAULT_CATEGORIES = [
@@ -88,6 +89,8 @@ DEFAULT_SETTINGS = {
     "bg_color": "#eef3fa",
     "show_recent": "1",
     "show_popular": "1",
+    "ai_enabled": "0",
+    "ai_daily_limit": "200",
 }
 
 

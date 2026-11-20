@@ -5,13 +5,14 @@ import { useApp } from '../App.jsx'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
 import FilePreview from '../components/FilePreview.jsx'
+import AskAI from '../components/AskAI.jsx'
 import Pager from '../components/Pager.jsx'
 import { FileIcon, FILE_TYPES, formatSize, Marked, termsOf } from '../util.jsx'
 
 const SIZES = [10, 20, 50]
 
 export default function SearchPage() {
-  const { categories } = useApp()
+  const { categories, settings } = useApp()
   const [params, setParams] = useSearchParams()
   const q = params.get('q') || ''
   const mode = params.get('mode') || 'smart'
@@ -93,6 +94,7 @@ export default function SearchPage() {
           <button className={mode === 'exact' ? 'active' : ''} onClick={() => set({ mode: 'exact', q })}><Code size={14} /> Exact Substring</button>
         </div>
       </div>
+      {settings.ai_enabled === '1' && q && <AskAI question={q} />}
       {error && <div className="error">{error}</div>}
       {!q && <div className="empty">Type a word or phrase to search inside every indexed document.</div>}
       {data && (

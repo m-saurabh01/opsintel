@@ -4,7 +4,7 @@ import { Calendar, Download, ExternalLink, Eye, FileText } from 'lucide-react'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
 import FilePreview from '../components/FilePreview.jsx'
-import { FileIcon, formatDate, formatSize, termsOf } from '../util.jsx'
+import { FileIcon, formatDate, isVideo, formatSize, termsOf } from '../util.jsx'
 
 export default function DocumentPage() {
   const { id } = useParams()
@@ -31,6 +31,7 @@ export default function DocumentPage() {
   if (!doc) return <div className="page muted">Loading…</div>
 
   const isPdf = doc.ext === 'pdf'
+  const canOpen = isPdf || isVideo(doc.ext)
   const page = Number(params.get('page') || 1)
   const terms = termsOf(params.get('q'), params.get('mode'))
 
@@ -53,12 +54,12 @@ export default function DocumentPage() {
           </div>
         </div>
         <div className="doc-actions">
-          {isPdf && (
-            <a className="btn primary" href={`${api.fileUrl(doc.id)}#page=${page}`} target="_blank" rel="noreferrer">
+          {canOpen && (
+            <a className="btn primary" href={isPdf ? `${api.fileUrl(doc.id)}#page=${page}` : api.fileUrl(doc.id)} target="_blank" rel="noreferrer">
               <ExternalLink size={16} /> Open in New Tab
             </a>
           )}
-          <a className={`btn${isPdf ? '' : ' primary'}`} href={api.downloadUrl(doc.id)}><Download size={16} /> Download</a>
+          <a className={`btn${canOpen ? '' : ' primary'}`} href={api.downloadUrl(doc.id)}><Download size={16} /> Download</a>
         </div>
       </div>
       <div className="doc-layout">
@@ -93,10 +94,10 @@ export default function DocumentPage() {
                   <FileIcon ext={r.ext} size={34} />
                   <span className="doc-row-main"><b>{r.title}</b><small>{formatSize(r.size)} · {formatDate(r.created_at)}</small></span>
                 </Link>
-                <a className="icon-btn" href={r.ext === 'pdf' ? api.fileUrl(r.id) : api.downloadUrl(r.id)}
-                  target={r.ext === 'pdf' ? '_blank' : undefined} rel="noreferrer"
-                  aria-label={r.ext === 'pdf' ? 'Open in new tab' : 'Download'}>
-                  {r.ext === 'pdf' ? <ExternalLink size={16} /> : <Download size={16} />}
+                <a className="icon-btn" href={(r.ext === 'pdf' || isVideo(r.ext)) ? api.fileUrl(r.id) : api.downloadUrl(r.id)}
+                  target={(r.ext === 'pdf' || isVideo(r.ext)) ? '_blank' : undefined} rel="noreferrer"
+                  aria-label={(r.ext === 'pdf' || isVideo(r.ext)) ? 'Open in new tab' : 'Download'}>
+                  {(r.ext === 'pdf' || isVideo(r.ext)) ? <ExternalLink size={16} /> : <Download size={16} />}
                 </a>
               </div>
             ))}

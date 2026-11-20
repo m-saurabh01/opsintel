@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import TextViewer from './TextViewer.jsx'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import { highlightIn, scrollToEl } from '../util.jsx'
+import { highlightIn, isVideo, scrollToEl } from '../util.jsx'
 
 const SHEET = new Set(['xlsx', 'xls', 'xlsm', 'ods'])
 const DELIM = new Set(['csv', 'tsv'])
@@ -253,14 +253,15 @@ export default function FilePreview({ id, ext, terms = [] }) {
   }, [id, key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   let body
-  if (SHEET.has(e) || DELIM.has(e)) body = <Sheets id={id} ext={e} terms={terms} />
+  if (isVideo(e)) body = <video className="cbt-video" controls preload="metadata" src={api.fileUrl(id)} />
+  else if (SHEET.has(e) || DELIM.has(e)) body = <Sheets id={id} ext={e} terms={terms} />
   else if (e === 'docx') body = <Docx id={id} />
   else if (e === 'pptx') body = <Pptx id={id} />
   else if (PLAIN.has(e)) body = <Plain id={id} />
   else body = <TextViewer id={id} />
   return (
     <div className="file-viewer">
-      {terms.length > 0 && (
+      {terms.length > 0 && !isVideo(e) && (
         <div className="hit-bar">
           {hits > 0 ? <span><b>{cur + 1 > 0 ? cur + 1 : 1}</b> of {hits >= 500 ? '500+' : hits} matches in this file</span>
             : <span>No highlighted matches in the preview (the match may be in the title or metadata).</span>}
