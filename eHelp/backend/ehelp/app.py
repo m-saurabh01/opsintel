@@ -176,7 +176,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             ai.reserve_request(conn, int(cfg["ai_daily_limit"] or 0))
         except ai.AILimitReached:
             raise HTTPException(429, "The daily AI request limit has been reached") from None
-        evidence = ai.retrieve(conn, question, config.ai_top_k, config.ai_context_chars)
+        evidence = ai.retrieve(conn, question, config.ai_top_k, config.ai_context_chars, body.category or None)
 
         def sse(event: str, data: dict) -> str:
             return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"

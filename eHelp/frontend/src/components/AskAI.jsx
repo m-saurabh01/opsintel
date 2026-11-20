@@ -37,7 +37,7 @@ function Answer({ text, citations }) {
   )
 }
 
-export default function AskAI({ question, auto }) {
+export default function AskAI({ question, category, auto }) {
   const [state, setState] = useState({ phase: 'idle', text: '', stage: '', citations: [], warning: '', error: '' })
   const ctl = useRef(null)
   useEffect(() => () => ctl.current?.abort(), [])
@@ -47,7 +47,7 @@ export default function AskAI({ question, auto }) {
     ctl.current = new AbortController()
     setState({ phase: 'running', text: '', stage: 'Starting…', citations: [], warning: '', error: '' })
     try {
-      const res = await api.aiAsk(question, ctl.current.signal)
+      const res = await api.aiAsk(question, category, ctl.current.signal)
       if (!res.ok) {
         let d = res.statusText
         try { d = (await res.json()).detail || d } catch { /* keep */ }
@@ -63,13 +63,13 @@ export default function AskAI({ question, auto }) {
     } catch (e) {
       if (e.name !== 'AbortError') setState((s) => ({ ...s, phase: 'error', error: e.message }))
     }
-  }, [question])
+  }, [question, category])
 
   useEffect(() => {
     ctl.current?.abort()
     setState({ phase: 'idle', text: '', stage: '', citations: [], warning: '', error: '' })
     if (auto && question) ask()
-  }, [question, auto, ask])
+  }, [question, category, auto, ask])
 
   const { phase, text, stage, citations, warning, error } = state
   return (

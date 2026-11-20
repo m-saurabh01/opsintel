@@ -5,6 +5,7 @@ import { useApp } from '../App.jsx'
 import { api } from '../api.js'
 import PdfViewer from '../components/PdfViewer.jsx'
 import FilePreview from '../components/FilePreview.jsx'
+import PageBanner from '../components/PageBanner.jsx'
 import Pager from '../components/Pager.jsx'
 import { FileIcon, FILE_TYPES, formatSize, Marked, termsOf } from '../util.jsx'
 
@@ -66,13 +67,9 @@ export default function SearchPage() {
 
   return (
     <div className="search-page">
-      <div className="search-head">
-        <div>
-          <div className="eyebrow">Workspace</div>
-          <h1>Global Search</h1>
-          <p>Search source documents and technical manuals across all indexed files.</p>
-        </div>
-      </div>
+      <PageBanner image="/img/tejas3.jpg" icon={<Search size={32} />} title="Global Search">
+        Search source documents and technical manuals across all indexed files.
+      </PageBanner>
       <form className="search-bar" onSubmit={(e) => { e.preventDefault(); set({ q: draft.trim() }) }}>
         <Search size={18} />
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Search documents..." autoFocus />

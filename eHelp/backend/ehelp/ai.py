@@ -53,7 +53,8 @@ def keywords(question: str) -> list[str]:
     return list(dict.fromkeys(words))[:10]
 
 
-def retrieve(conn: sqlite3.Connection, question: str, top_k: int, max_chars: int) -> list[dict]:
+def retrieve(conn: sqlite3.Connection, question: str, top_k: int, max_chars: int,
+             category: str | None = None) -> list[dict]:
     words = keywords(question)
     if not words:
         return []
@@ -61,7 +62,10 @@ def retrieve(conn: sqlite3.Connection, question: str, top_k: int, max_chars: int
     rows = conn.execute(
         "SELECT c.id, c.doc_id, c.page, c.label, c.text, d.title FROM chunks_fts "
         "JOIN chunks c ON c.id = chunks_fts.rowid JOIN documents d ON d.id = c.doc_id "
-        "WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts) LIMIT ?", (match, top_k * 4)).fetchall()
+        "WHERE chunks_fts MATCH ?"
+        + (" AND d.category_id = (SELECT id FROM categories WHERE slug = ?)" if category else "")
+        + " ORDER BY bm25(chunks_fts) LIMIT ?",
+        (match, *([category] if category else []), top_k * 4)).fetchall()
     evidence, remaining, per_doc = [], max_chars, {}
     for row in rows:
         if len(evidence) >= top_k or remaining <= 0:
