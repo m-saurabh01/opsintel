@@ -47,6 +47,23 @@
    - Offline transfer techniques (XZ compression, splitting)
    - Security best practices
 
+### 8. **WINDOWS_PORTABLE_PACKAGING.md** ⚙️ HOW TO BUILD ZIPS
+   - Step-by-step guide to create portable Windows packages
+   - Download & configure Node.js and Python portable versions
+   - Pre-install dependencies (npm, pip, uv)
+   - Create windows-dev-portable.zip and windows-deploy-portable.zip
+   - Compress with 7-Zip or PowerShell
+   - Troubleshooting portability issues
+
+### 9. **DOCKER_REBUILD_GUIDE.md** 🔄 UPDATE & REBUILD
+   - How to rebuild Docker image after code changes
+   - Add backend dependencies (Python packages)
+   - Add frontend dependencies (npm packages)
+   - Add system dependencies (FFmpeg, etc.)
+   - Export updated image to tar for deployment
+   - Multi-stage builds for smaller images
+   - Troubleshooting build failures
+
 ---
 
 ## 🏗️ Core Files
@@ -233,6 +250,22 @@ docker save ehelp:latest | gzip > ehelp-docker.tar.gz
 ./build-artifacts.sh
 # Creates: dist/ehelp-docker.tar.gz, windows-dev-portable.zip, windows-deploy-portable.zip
 ```
+
+### Create Portable Windows Packages
+
+See **WINDOWS_PORTABLE_PACKAGING.md** for detailed steps:
+- Download Node.js and Python portable versions
+- Install dependencies offline
+- Create windows-dev-portable.zip and windows-deploy-portable.zip
+- Test portability in clean Windows environment
+
+### Update Docker Image After Code Changes
+
+See **DOCKER_REBUILD_GUIDE.md** for detailed workflow:
+- Quick rebuild: `docker build -f Dockerfile.rhel -t ehelp:latest .`
+- Add backend/frontend/system dependencies
+- Multi-stage builds for optimization
+- Export to tar for offline deployment
 
 ---
 
