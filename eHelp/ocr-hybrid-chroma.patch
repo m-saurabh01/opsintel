@@ -1,0 +1,411 @@
+diff --git a/eHelp/backend/.env.example b/eHelp/backend/.env.example
+index cb15bca..8d82752 100644
+--- a/eHelp/backend/.env.example
++++ b/eHelp/backend/.env.example
+@@ -6,3 +6,15 @@ EHELP_DEV_ADMIN=0
+ EHELP_MAX_UPLOAD_MB=500
+ # Optional path to soffice for legacy .doc/.ppt support.
+ EHELP_LIBREOFFICE_PATH=
++
++# OCR for scanned PDFs (needs the tesseract binary with eng.traineddata)
++EHELP_OCR_ENABLED=0
++EHELP_TESSERACT_PATH=
++
++# Hybrid search: keyword (BM25) + semantic (nomic-embed-text through Ollama)
++EHELP_EMBED_ENABLED=0
++EHELP_EMBED_MODEL=nomic-embed-text
++EHELP_EMBED_MIN_SCORE=0.55
++# Chroma stores vectors in <data dir>/chroma by default; set a path, or a server as host:port
++EHELP_CHROMA_PATH=
++EHELP_CHROMA_URL=
+diff --git a/eHelp/backend/ehelp/ai.py b/eHelp/backend/ehelp/ai.py
+index 629f12c..d24b7a6 100644
+--- a/eHelp/backend/ehelp/ai.py
++++ b/eHelp/backend/ehelp/ai.py
+@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator
+ 
+ import httpx
+ 
++from ehelp import embeddings
++
+ CITATION_RE = re.compile(r"\[E(\d+)\]")
+ STOPWORDS = {
+     "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for", "from", "how", "i", "if", "in",
+@@ -53,6 +55,26 @@ def keywords(question: str) -> list[str]:
+     return list(dict.fromkeys(words))[:10]
+ 
+ 
++def fuse_chunks(conn: sqlite3.Connection, rows, vec_ids: list[int], category: str | None) -> list:
++    """Reciprocal-rank fusion of BM25 rows and vector-ranked chunk ids."""
++    scores: dict[int, float] = {}
++    for rank, row in enumerate(rows):
++        scores[row["id"]] = scores.get(row["id"], 0) + 1 / (60 + rank)
++    for rank, cid in enumerate(vec_ids):
++        scores[cid] = scores.get(cid, 0) + 1 / (60 + rank)
++    by_id = {r["id"]: r for r in rows}
++    missing = [i for i in scores if i not in by_id]
++    if missing:
++        marks = ",".join("?" * len(missing))
++        extra = conn.execute(
++            "SELECT c.id, c.doc_id, c.page, c.label, c.text, d.title FROM chunks c JOIN documents d ON d.id = c.doc_id "
++            f"WHERE c.id IN ({marks})"
++            + (" AND d.category_id = (SELECT id FROM categories WHERE slug = ?)" if category else ""),
++            (*missing, *([category] if category else []))).fetchall()
++        by_id.update({r["id"]: r for r in extra})
++    return [by_id[i] for i in sorted(scores, key=scores.get, reverse=True) if i in by_id]
++
++
+ def retrieve(conn: sqlite3.Connection, question: str, top_k: int, max_chars: int,
+              category: str | None = None) -> list[dict]:
+     words = keywords(question)
+@@ -66,6 +88,9 @@ def retrieve(conn: sqlite3.Connection, question: str, top_k: int, max_chars: int
+         + (" AND d.category_id = (SELECT id FROM categories WHERE slug = ?)" if category else "")
+         + " ORDER BY bm25(chunks_fts) LIMIT ?",
+         (match, *([category] if category else []), top_k * 4)).fetchall()
++    vec_ids = embeddings.semantic_search(conn, question, top_k * 4)
++    if vec_ids:
++        rows = fuse_chunks(conn, rows, vec_ids, category)
+     evidence, remaining, per_doc = [], max_chars, {}
+     for row in rows:
+         if len(evidence) >= top_k or remaining <= 0:
+diff --git a/eHelp/backend/ehelp/app.py b/eHelp/backend/ehelp/app.py
+index 59c25db..81fdafd 100644
+--- a/eHelp/backend/ehelp/app.py
++++ b/eHelp/backend/ehelp/app.py
+@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
+ from pathlib import Path
+ 
+ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
+-from fastapi.responses import FileResponse, StreamingResponse
++from fastapi.responses import FileResponse, Response, StreamingResponse
+ from pydantic import BaseModel
+ from fastapi.staticfiles import StaticFiles
+ 
+@@ -21,6 +21,7 @@ from ehelp.auth import User, current_user, require_admin
+ from ehelp.config import Config, load_config
+ from ehelp.db import DEFAULT_SETTINGS, connect, get_settings, init_db, tags_of, transaction
+ from ehelp.indexing import VIDEO_EXTS, Indexer, mime_for, slugify
++from ehelp import embeddings
+ from ehelp.parsers.registry import ParserRegistry
+ from ehelp.search import MARK_CLOSE, MARK_OPEN, search_documents, tokens_of  # noqa: F401
+ from ehelp.cache import CACHE_API_DEFAULT, CACHE_SEARCH, CACHE_DOC_META, set_cache_headers, set_etag
+@@ -69,11 +70,14 @@ def create_app(config: Config | None = None) -> FastAPI:
+     boot = connect(config.db_path)
+     init_db(boot)
+     index_conn = boot
+-    indexer = Indexer(index_conn, ParserRegistry(config.libreoffice_path))
++    indexer = Indexer(index_conn, ParserRegistry(config.libreoffice_path, ocr_enabled=config.ocr_enabled,
++                                               tesseract_path=config.tesseract_path))
+     index_lock = threading.Lock()
+ 
+     @asynccontextmanager
+     async def lifespan(_: FastAPI):
++        if embeddings.enabled():
++            threading.Thread(target=embeddings.backfill, args=(connect(config.db_path),), daemon=True).start()
+         yield
+         indexer.close()
+         boot.close()
+@@ -480,6 +484,7 @@ def create_app(config: Config | None = None) -> FastAPI:
+     def delete_document(doc_id: int, _: User = Depends(require_admin), conn: sqlite3.Connection = Depends(db)):
+         row = get_doc(conn, doc_id)
+         conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
++        embeddings.delete_document(doc_id)
+         (config.files_dir / row["stored_name"]).unlink(missing_ok=True)
+ 
+     app.mount("/uploads", StaticFiles(directory=config.assets_dir), name="uploads")
+diff --git a/eHelp/backend/ehelp/config.py b/eHelp/backend/ehelp/config.py
+index 0328ee6..79e290c 100644
+--- a/eHelp/backend/ehelp/config.py
++++ b/eHelp/backend/ehelp/config.py
+@@ -17,6 +17,8 @@ class Config:
+     ai_top_k: int = 4
+     ai_context_chars: int = 2500
+     ai_max_queue: int = 4
++    ocr_enabled: bool = False
++    tesseract_path: str = ""
+ 
+     @property
+     def files_dir(self) -> Path:
+@@ -58,4 +60,6 @@ def load_config() -> Config:
+         ai_top_k=int(env("EHELP_AI_TOP_K", "4")),
+         ai_context_chars=int(env("EHELP_AI_CONTEXT_CHARS", "2500")),
+         ai_max_queue=int(env("EHELP_AI_MAX_QUEUE", "4")),
++        ocr_enabled=env("EHELP_OCR_ENABLED", "0").lower() in ("1", "true", "yes"),
++        tesseract_path=env("EHELP_TESSERACT_PATH", ""),
+     )
+diff --git a/eHelp/backend/ehelp/embeddings.py b/eHelp/backend/ehelp/embeddings.py
+new file mode 100644
+index 0000000..dcd195a
+--- /dev/null
++++ b/eHelp/backend/ehelp/embeddings.py
+@@ -0,0 +1,113 @@
++"""Optional semantic search: nomic-embed-text served by Ollama, vectors stored in ChromaDB (cosine)."""
++import logging
++import os
++import re
++import sqlite3
++import threading
++
++import httpx
++
++log = logging.getLogger(__name__)
++
++DOC_PREFIX, QUERY_PREFIX = "search_document: ", "search_query: "
++BATCH = 16
++PAGE = 64
++MAX_CHARS = 2000
++_lock = threading.Lock()
++_state: dict = {"client": None, "name": None, "col": None}
++
++
++def enabled() -> bool:
++    return os.environ.get("EHELP_EMBED_ENABLED", "0").lower() in ("1", "true", "yes")
++
++
++def _model() -> str:
++    return os.environ.get("EHELP_EMBED_MODEL", "nomic-embed-text")
++
++
++def _embed(texts: list[str], prefix: str) -> list[list[float]]:
++    url = os.environ.get("EHELP_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
++    response = httpx.post(f"{url}/api/embed", timeout=120,
++                          json={"model": _model(), "input": [prefix + t[:MAX_CHARS] for t in texts]})
++    response.raise_for_status()
++    return response.json()["embeddings"]
++
++
++def _collection():
++    """One collection per embedding model, so changing EHELP_EMBED_MODEL re-embeds cleanly."""
++    import chromadb
++
++    name = "chunks_" + re.sub(r"[^a-zA-Z0-9_-]", "_", _model())
++    with _lock:
++        if _state["col"] is None or _state["name"] != name:
++            if _state["client"] is None:
++                url = os.environ.get("EHELP_CHROMA_URL", "")
++                if url:
++                    host, _, port = url.removeprefix("http://").removeprefix("https://").partition(":")
++                    _state["client"] = chromadb.HttpClient(host=host, port=int(port or 8000))
++                else:
++                    path = os.environ.get("EHELP_CHROMA_PATH") or str(
++                        __import__("pathlib").Path(os.environ.get("EHELP_DATA_DIR", "./data")) / "chroma")
++                    _state["client"] = chromadb.PersistentClient(path=path)
++            _state["col"] = _state["client"].get_or_create_collection(name, metadata={"hnsw:space": "cosine"})
++            _state["name"] = name
++        return _state["col"]
++
++
++def embed_missing(conn: sqlite3.Connection, doc_id: int | None = None) -> int:
++    """Embed chunks that are not in Chroma yet (one document, or all when doc_id is None)."""
++    col, done, last = _collection(), 0, 0
++    while True:
++        rows = conn.execute(
++            "SELECT id, doc_id, text FROM chunks WHERE id > ?" + (" AND doc_id = ?" if doc_id else "")
++            + " ORDER BY id LIMIT ?", (last, *([doc_id] if doc_id else []), PAGE)).fetchall()
++        if not rows:
++            return done
++        last = rows[-1]["id"]
++        have = set(col.get(ids=[str(r["id"]) for r in rows], include=[])["ids"])
++        todo = [r for r in rows if str(r["id"]) not in have]
++        for i in range(0, len(todo), BATCH):
++            part = todo[i:i + BATCH]
++            col.upsert(ids=[str(r["id"]) for r in part],
++                       embeddings=_embed([r["text"] for r in part], DOC_PREFIX),
++                       metadatas=[{"doc_id": r["doc_id"]} for r in part])
++            done += len(part)
++
++
++def delete_document(doc_id: int) -> None:
++    """Remove a document's vectors (Chroma has no cascade from SQLite)."""
++    if not enabled():
++        return
++    try:
++        _collection().delete(where={"doc_id": doc_id})
++    except Exception as exc:  # noqa: BLE001
++        log.warning("could not delete vectors for document %s: %s", doc_id, exc)
++
++
++def backfill(conn: sqlite3.Connection) -> None:
++    try:
++        count = embed_missing(conn)
++        if count:
++            log.info("embedded %d existing chunks", count)
++    except Exception as exc:  # noqa: BLE001 - Ollama may be down; keyword search keeps working
++        log.warning("embedding backfill stopped: %s", exc)
++    finally:
++        conn.close()
++
++
++def semantic_search(conn: sqlite3.Connection, query: str, limit: int = 100) -> list[int]:
++    """Chunk ids ranked by cosine similarity to the query; empty when disabled or unavailable."""
++    if not enabled():
++        return []
++    try:
++        col = _collection()
++        total = col.count()
++        if not total:
++            return []
++        res = col.query(query_embeddings=_embed([query], QUERY_PREFIX), n_results=min(limit, total),
++                        include=["distances"])
++        floor = float(os.environ.get("EHELP_EMBED_MIN_SCORE", "0.55"))
++        return [int(i) for i, d in zip(res["ids"][0], res["distances"][0]) if 1 - d >= floor]
++    except Exception as exc:  # noqa: BLE001
++        log.warning("semantic search unavailable: %s", exc)
++        return []
+diff --git a/eHelp/backend/ehelp/indexing.py b/eHelp/backend/ehelp/indexing.py
+index 145e31a..6a05b5c 100644
+--- a/eHelp/backend/ehelp/indexing.py
++++ b/eHelp/backend/ehelp/indexing.py
+@@ -3,6 +3,7 @@ import re
+ import sqlite3
+ from pathlib import Path
+ 
++from ehelp import embeddings
+ from ehelp.db import transaction
+ from ehelp.parsers.base import ParseError, ParseResult
+ from ehelp.parsers.registry import ParserRegistry
+@@ -70,6 +71,7 @@ class Indexer:
+         pages = [c.page for c in chunks if c.page]
+         if pages:
+             page_count = max(pages)
++        embeddings.delete_document(doc_id)
+         with transaction(self.conn):
+             self.conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
+             self.conn.executemany(
+@@ -78,6 +80,11 @@ class Indexer:
+             self.conn.execute(
+                 "UPDATE documents SET index_status = ?, index_error = ?, page_count = coalesce(?, page_count) "
+                 "WHERE id = ?", (status, error, page_count, doc_id))
++        if embeddings.enabled() and chunks:
++            try:
++                embeddings.embed_missing(self.conn, doc_id)
++            except Exception as exc:  # noqa: BLE001 - keyword search still works; startup backfill retries
++                log.warning("embedding failed for document %s: %s", doc_id, exc)
+ 
+     def close(self) -> None:
+         self.sandbox.close()
+diff --git a/eHelp/backend/ehelp/parsers/registry.py b/eHelp/backend/ehelp/parsers/registry.py
+index 4eb9cf6..039e44f 100644
+--- a/eHelp/backend/ehelp/parsers/registry.py
++++ b/eHelp/backend/ehelp/parsers/registry.py
+@@ -23,13 +23,14 @@ def build(name: str, kwargs: dict) -> Parser:
+ 
+ 
+ class ParserRegistry:
+-    def __init__(self, libreoffice_path: str = "", timeout_s: float = 120, ocr_enabled: bool = False):
++    def __init__(self, libreoffice_path: str = "", timeout_s: float = 120, ocr_enabled: bool = False,
++                 tesseract_path: str = ""):
+         soffice = find_libreoffice(libreoffice_path)
+         xlsx = XlsxParser(LINES, CHARS)
+         self._by_ext: dict[str, Parser | None] = {
+             "csv": DelimitedParser(",", LINES, CHARS),
+             "tsv": DelimitedParser("\t", LINES, CHARS),
+-            "pdf": PdfParser(CHARS, ocr_enabled, ""),
++            "pdf": PdfParser(CHARS, ocr_enabled, tesseract_path),
+             "docx": DocxParser(CHARS),
+             "doc": LegacyDocParser(soffice, timeout_s, CHARS) if soffice else None,
+             "ppt": LegacyPptParser(soffice, timeout_s, CHARS) if soffice else None,
+diff --git a/eHelp/backend/ehelp/search.py b/eHelp/backend/ehelp/search.py
+index 1842f17..f59901a 100644
+--- a/eHelp/backend/ehelp/search.py
++++ b/eHelp/backend/ehelp/search.py
+@@ -2,6 +2,8 @@ import re
+ import sqlite3
+ from dataclasses import dataclass, field
+ 
++from ehelp import embeddings
++
+ MARK_OPEN, MARK_CLOSE = "\x02", "\x03"
+ MAX_HITS = 2000
+ SNIPPETS_PER_DOC = 3
+@@ -13,6 +15,7 @@ class DocHit:
+     title_match: bool = False
+     best: float = 0.0
+     matches: int = 0
++    rrf: float = 0.0
+     snippets: list[dict] = field(default_factory=list)
+ 
+ 
+@@ -74,20 +77,38 @@ def search_documents(conn: sqlite3.Connection, query: str, mode: str = "smart",
+     where, args = _filters(category_id, ext)
+     if mode == "exact":
+         rows = conn.execute(
+-            "SELECT c.doc_id, c.page, c.label, c.text, 0.0 AS score FROM chunks c JOIN documents d ON d.id = c.doc_id "
++            "SELECT c.id AS cid, c.doc_id, c.page, c.label, c.text, 0.0 AS score FROM chunks c JOIN documents d ON d.id = c.doc_id "
+             f"WHERE instr(lower(c.text), lower(?)) > 0{where} ORDER BY c.doc_id, c.ordinal LIMIT {MAX_HITS}",
+             [query, *args]).fetchall()
+     else:
+         rows = conn.execute(
+-            f"SELECT c.doc_id, c.page, c.label, snippet(chunks_fts, 0, '{MARK_OPEN}', '{MARK_CLOSE}', '…', 28) AS text,"
++            f"SELECT c.id AS cid, c.doc_id, c.page, c.label, snippet(chunks_fts, 0, '{MARK_OPEN}', '{MARK_CLOSE}', '…', 28) AS text,"
+             " bm25(chunks_fts) AS score FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid "
+             f"JOIN documents d ON d.id = c.doc_id WHERE chunks_fts MATCH ?{where} ORDER BY score LIMIT {MAX_HITS}",
+             [fts_query(tokens), *args]).fetchall()
+-    for row in rows:
++    for rank, row in enumerate(rows):
+         hit = hits.setdefault(row["doc_id"], DocHit(row["doc_id"]))
++        hit.rrf += 1 / (60 + rank)
+         hit.matches += 1
+         hit.best = min(hit.best, row["score"])
+         if len(hit.snippets) < SNIPPETS_PER_DOC:
+             text = _exact_snippet(row["text"], query) if mode == "exact" else row["text"]
+             hit.snippets.append({"page": row["page"], "label": row["label"], "text": text.replace("\n", " ")})
+-    return sorted(hits.values(), key=lambda h: (not h.title_match, h.best, -h.matches))
++    vec_ids = embeddings.semantic_search(conn, query) if mode == "smart" else []
++    if not vec_ids:
++        return sorted(hits.values(), key=lambda h: (not h.title_match, h.best, -h.matches))
++    marks = ",".join("?" * len(vec_ids))
++    by_id = {r["cid"]: r for r in conn.execute(
++        "SELECT c.id AS cid, c.doc_id, c.page, c.label, c.text FROM chunks c JOIN documents d ON d.id = c.doc_id "
++        f"WHERE c.id IN ({marks}){where}", [*vec_ids, *args]).fetchall()}
++    shown = {r["cid"] for r in rows}
++    for rank, cid in enumerate(i for i in vec_ids if i in by_id):
++        row = by_id[cid]
++        hit = hits.setdefault(row["doc_id"], DocHit(row["doc_id"]))
++        hit.rrf += 1 / (60 + rank)
++        if cid not in shown:
++            hit.matches += 1
++            if len(hit.snippets) < SNIPPETS_PER_DOC:
++                hit.snippets.append({"page": row["page"], "label": row["label"],
++                                     "text": row["text"][:220].replace("\n", " ")})
++    return sorted(hits.values(), key=lambda h: (not h.title_match, -h.rrf))
+diff --git a/eHelp/backend/pyproject.toml b/eHelp/backend/pyproject.toml
+index fafa603..f54da66 100644
+--- a/eHelp/backend/pyproject.toml
++++ b/eHelp/backend/pyproject.toml
+@@ -15,6 +15,7 @@ dependencies = [
+     "odfpy>=1.4",
+     "defusedxml>=0.7.1",
+     "httpx>=0.27",
++    "chromadb>=1.0",
+ ]
+ 
+ [project.scripts]
+diff --git a/eHelp/backend/tests/test_api.py b/eHelp/backend/tests/test_api.py
+index 89f6f36..b63acb8 100644
+--- a/eHelp/backend/tests/test_api.py
++++ b/eHelp/backend/tests/test_api.py
+@@ -158,3 +158,23 @@ def test_ai_mode_toggle_and_daily_limit(client, upload, monkeypatch):
+     assert client.get("/api/ai/status").json()["remaining"] == 0
+     client.put("/api/admin/settings", headers=ADMIN, json={"ai_daily_limit": "0"})
+     assert client.post("/api/ai/ask", json=body).status_code == 200
++
++
++def test_hybrid_search_finds_semantic_match(client, upload, monkeypatch, tmp_path):
++    from ehelp import embeddings
++
++    def fake_embed(texts, prefix):  # "engine"/"turbine" share one axis, everything else another
++        return [[1.0, 0.0] if any(w in t.lower() for w in ("engine", "turbine")) else [0.0, 1.0] for t in texts]
++
++    monkeypatch.setenv("EHELP_EMBED_ENABLED", "1")
++    monkeypatch.setenv("EHELP_CHROMA_PATH", str(tmp_path / "chroma"))
++    monkeypatch.setitem(embeddings._state, "client", None)
++    monkeypatch.setitem(embeddings._state, "col", None)
++    monkeypatch.setattr(embeddings, "_embed", fake_embed)
++    upload("turbine.docx", make_docx("Turbine blade overhaul procedure"))
++    upload("canteen.docx", make_docx("Canteen menu for the week"))
++    res = client.get("/api/search", params={"q": "engine repair"}).json()
++    assert [i["document"]["filename"] for i in res["items"]] == ["turbine.docx"]
++    doc_id = res["items"][0]["document"]["id"]
++    assert client.delete(f"/api/admin/documents/{doc_id}", headers=ADMIN).status_code == 204
++    assert client.get("/api/search", params={"q": "engine repair"}).json()["total"] == 0
