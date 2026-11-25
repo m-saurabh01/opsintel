@@ -1,6 +1,7 @@
-"""Optional semantic search: nomic-embed-text served by Ollama, vectors stored in SQLite, cosine via numpy."""
+"""Optional semantic search: nomic-embed-text served by Ollama, vectors stored in ChromaDB (cosine)."""
 import logging
 import os
+import re
 import sqlite3
 import threading
 
@@ -10,9 +11,10 @@ log = logging.getLogger(__name__)
 
 DOC_PREFIX, QUERY_PREFIX = "search_document: ", "search_query: "
 BATCH = 16
+PAGE = 64
 MAX_CHARS = 2000
-_cache: dict = {"key": None, "ids": None, "matrix": None}
 _lock = threading.Lock()
+_state: dict = {"client": None, "name": None, "col": None}
 
 
 def enabled() -> bool:
@@ -31,28 +33,55 @@ def _embed(texts: list[str], prefix: str) -> list[list[float]]:
     return response.json()["embeddings"]
 
 
-def _pack(vectors: list[list[float]]) -> list[bytes]:
-    import numpy as np
+def _collection():
+    """One collection per embedding model, so changing EHELP_EMBED_MODEL re-embeds cleanly."""
+    import chromadb
 
-    arr = np.asarray(vectors, dtype=np.float32)
-    arr /= np.maximum(np.linalg.norm(arr, axis=1, keepdims=True), 1e-9)
-    return [row.tobytes() for row in arr]
+    name = "chunks_" + re.sub(r"[^a-zA-Z0-9_-]", "_", _model())
+    with _lock:
+        if _state["col"] is None or _state["name"] != name:
+            if _state["client"] is None:
+                url = os.environ.get("EHELP_CHROMA_URL", "")
+                if url:
+                    host, _, port = url.removeprefix("http://").removeprefix("https://").partition(":")
+                    _state["client"] = chromadb.HttpClient(host=host, port=int(port or 8000))
+                else:
+                    path = os.environ.get("EHELP_CHROMA_PATH") or str(
+                        __import__("pathlib").Path(os.environ.get("EHELP_DATA_DIR", "./data")) / "chroma")
+                    _state["client"] = chromadb.PersistentClient(path=path)
+            _state["col"] = _state["client"].get_or_create_collection(name, metadata={"hnsw:space": "cosine"})
+            _state["name"] = name
+        return _state["col"]
 
 
 def embed_missing(conn: sqlite3.Connection, doc_id: int | None = None) -> int:
-    """Embed chunks that have no vector for the current model (one document, or all when doc_id is None)."""
-    done = 0
+    """Embed chunks that are not in Chroma yet (one document, or all when doc_id is None)."""
+    col, done, last = _collection(), 0, 0
     while True:
         rows = conn.execute(
-            "SELECT c.id, c.text FROM chunks c LEFT JOIN chunk_vectors v ON v.chunk_id = c.id "
-            "WHERE (v.chunk_id IS NULL OR v.model != ?)" + (" AND c.doc_id = ?" if doc_id else "") + " LIMIT ?",
-            (_model(), *([doc_id] if doc_id else []), BATCH)).fetchall()
+            "SELECT id, doc_id, text FROM chunks WHERE id > ?" + (" AND doc_id = ?" if doc_id else "")
+            + " ORDER BY id LIMIT ?", (last, *([doc_id] if doc_id else []), PAGE)).fetchall()
         if not rows:
             return done
-        blobs = _pack(_embed([r["text"] for r in rows], DOC_PREFIX))
-        conn.executemany("INSERT OR REPLACE INTO chunk_vectors(chunk_id, model, vec) VALUES (?, ?, ?)",
-                         [(r["id"], _model(), b) for r, b in zip(rows, blobs)])
-        done += len(rows)
+        last = rows[-1]["id"]
+        have = set(col.get(ids=[str(r["id"]) for r in rows], include=[])["ids"])
+        todo = [r for r in rows if str(r["id"]) not in have]
+        for i in range(0, len(todo), BATCH):
+            part = todo[i:i + BATCH]
+            col.upsert(ids=[str(r["id"]) for r in part],
+                       embeddings=_embed([r["text"] for r in part], DOC_PREFIX),
+                       metadatas=[{"doc_id": r["doc_id"]} for r in part])
+            done += len(part)
+
+
+def delete_document(doc_id: int) -> None:
+    """Remove a document's vectors (Chroma has no cascade from SQLite)."""
+    if not enabled():
+        return
+    try:
+        _collection().delete(where={"doc_id": doc_id})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not delete vectors for document %s: %s", doc_id, exc)
 
 
 def backfill(conn: sqlite3.Connection) -> None:
@@ -66,37 +95,19 @@ def backfill(conn: sqlite3.Connection) -> None:
         conn.close()
 
 
-def _matrix(conn: sqlite3.Connection):
-    import numpy as np
-
-    stamp = conn.execute("SELECT count(*), coalesce(max(chunk_id), 0) FROM chunk_vectors WHERE model = ?",
-                         (_model(),)).fetchone()
-    key = (_model(), stamp[0], stamp[1])
-    with _lock:
-        if _cache["key"] != key:
-            rows = conn.execute("SELECT chunk_id, vec FROM chunk_vectors WHERE model = ?", (_model(),)).fetchall()
-            _cache["ids"] = np.fromiter((r[0] for r in rows), dtype=np.int64, count=len(rows))
-            _cache["matrix"] = (np.vstack([np.frombuffer(r[1], dtype=np.float32) for r in rows])
-                                if rows else None)
-            _cache["key"] = key
-        return _cache["ids"], _cache["matrix"]
-
-
 def semantic_search(conn: sqlite3.Connection, query: str, limit: int = 100) -> list[int]:
     """Chunk ids ranked by cosine similarity to the query; empty when disabled or unavailable."""
     if not enabled():
         return []
     try:
-        import numpy as np
-
-        ids, matrix = _matrix(conn)
-        if matrix is None:
+        col = _collection()
+        total = col.count()
+        if not total:
             return []
-        q = np.frombuffer(_pack(_embed([query], QUERY_PREFIX))[0], dtype=np.float32)
-        scores = matrix @ q
-        top = np.argsort(-scores)[:limit]
+        res = col.query(query_embeddings=_embed([query], QUERY_PREFIX), n_results=min(limit, total),
+                        include=["distances"])
         floor = float(os.environ.get("EHELP_EMBED_MIN_SCORE", "0.55"))
-        return [int(ids[i]) for i in top if scores[i] >= floor]
+        return [int(i) for i, d in zip(res["ids"][0], res["distances"][0]) if 1 - d >= floor]
     except Exception as exc:  # noqa: BLE001
         log.warning("semantic search unavailable: %s", exc)
         return []

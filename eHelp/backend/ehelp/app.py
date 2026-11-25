@@ -484,6 +484,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     def delete_document(doc_id: int, _: User = Depends(require_admin), conn: sqlite3.Connection = Depends(db)):
         row = get_doc(conn, doc_id)
         conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        embeddings.delete_document(doc_id)
         (config.files_dir / row["stored_name"]).unlink(missing_ok=True)
 
     app.mount("/uploads", StaticFiles(directory=config.assets_dir), name="uploads")

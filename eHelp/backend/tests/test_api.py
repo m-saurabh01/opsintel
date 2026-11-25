@@ -160,15 +160,21 @@ def test_ai_mode_toggle_and_daily_limit(client, upload, monkeypatch):
     assert client.post("/api/ai/ask", json=body).status_code == 200
 
 
-def test_hybrid_search_finds_semantic_match(client, upload, monkeypatch):
+def test_hybrid_search_finds_semantic_match(client, upload, monkeypatch, tmp_path):
     from ehelp import embeddings
 
     def fake_embed(texts, prefix):  # "engine"/"turbine" share one axis, everything else another
         return [[1.0, 0.0] if any(w in t.lower() for w in ("engine", "turbine")) else [0.0, 1.0] for t in texts]
 
     monkeypatch.setenv("EHELP_EMBED_ENABLED", "1")
+    monkeypatch.setenv("EHELP_CHROMA_PATH", str(tmp_path / "chroma"))
+    monkeypatch.setitem(embeddings._state, "client", None)
+    monkeypatch.setitem(embeddings._state, "col", None)
     monkeypatch.setattr(embeddings, "_embed", fake_embed)
     upload("turbine.docx", make_docx("Turbine blade overhaul procedure"))
     upload("canteen.docx", make_docx("Canteen menu for the week"))
     res = client.get("/api/search", params={"q": "engine repair"}).json()
     assert [i["document"]["filename"] for i in res["items"]] == ["turbine.docx"]
+    doc_id = res["items"][0]["document"]["id"]
+    assert client.delete(f"/api/admin/documents/{doc_id}", headers=ADMIN).status_code == 204
+    assert client.get("/api/search", params={"q": "engine repair"}).json()["total"] == 0

@@ -71,6 +71,7 @@ class Indexer:
         pages = [c.page for c in chunks if c.page]
         if pages:
             page_count = max(pages)
+        embeddings.delete_document(doc_id)
         with transaction(self.conn):
             self.conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
             self.conn.executemany(
