@@ -17,6 +17,8 @@ class Config:
     ai_top_k: int = 4
     ai_context_chars: int = 2500
     ai_max_queue: int = 4
+    ocr_enabled: bool = False
+    tesseract_path: str = ""
 
     @property
     def files_dir(self) -> Path:
@@ -58,4 +60,6 @@ def load_config() -> Config:
         ai_top_k=int(env("EHELP_AI_TOP_K", "4")),
         ai_context_chars=int(env("EHELP_AI_CONTEXT_CHARS", "2500")),
         ai_max_queue=int(env("EHELP_AI_MAX_QUEUE", "4")),
+        ocr_enabled=env("EHELP_OCR_ENABLED", "0").lower() in ("1", "true", "yes"),
+        tesseract_path=env("EHELP_TESSERACT_PATH", ""),
     )

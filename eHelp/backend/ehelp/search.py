@@ -2,6 +2,8 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 
+from ehelp import embeddings
+
 MARK_OPEN, MARK_CLOSE = "\x02", "\x03"
 MAX_HITS = 2000
 SNIPPETS_PER_DOC = 3
@@ -13,6 +15,7 @@ class DocHit:
     title_match: bool = False
     best: float = 0.0
     matches: int = 0
+    rrf: float = 0.0
     snippets: list[dict] = field(default_factory=list)
 
 
@@ -74,20 +77,38 @@ def search_documents(conn: sqlite3.Connection, query: str, mode: str = "smart", 
     where, args = _filters(category_id, ext)
     if mode == "exact":
         rows = conn.execute(
-            "SELECT c.doc_id, c.page, c.label, c.text, 0.0 AS score FROM chunks c JOIN documents d ON d.id = c.doc_id "
+            "SELECT c.id AS cid, c.doc_id, c.page, c.label, c.text, 0.0 AS score FROM chunks c JOIN documents d ON d.id = c.doc_id "
             f"WHERE instr(lower(c.text), lower(?)) > 0{where} ORDER BY c.doc_id, c.ordinal LIMIT {MAX_HITS}",
             [query, *args]).fetchall()
     else:
         rows = conn.execute(
-            f"SELECT c.doc_id, c.page, c.label, snippet(chunks_fts, 0, '{MARK_OPEN}', '{MARK_CLOSE}', '…', 28) AS text,"
+            f"SELECT c.id AS cid, c.doc_id, c.page, c.label, snippet(chunks_fts, 0, '{MARK_OPEN}', '{MARK_CLOSE}', '…', 28) AS text,"
             " bm25(chunks_fts) AS score FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid "
             f"JOIN documents d ON d.id = c.doc_id WHERE chunks_fts MATCH ?{where} ORDER BY score LIMIT {MAX_HITS}",
             [fts_query(tokens), *args]).fetchall()
-    for row in rows:
+    for rank, row in enumerate(rows):
         hit = hits.setdefault(row["doc_id"], DocHit(row["doc_id"]))
+        hit.rrf += 1 / (60 + rank)
         hit.matches += 1
         hit.best = min(hit.best, row["score"])
         if len(hit.snippets) < SNIPPETS_PER_DOC:
             text = _exact_snippet(row["text"], query) if mode == "exact" else row["text"]
             hit.snippets.append({"page": row["page"], "label": row["label"], "text": text.replace("\n", " ")})
-    return sorted(hits.values(), key=lambda h: (not h.title_match, h.best, -h.matches))
+    vec_ids = embeddings.semantic_search(conn, query) if mode == "smart" else []
+    if not vec_ids:
+        return sorted(hits.values(), key=lambda h: (not h.title_match, h.best, -h.matches))
+    marks = ",".join("?" * len(vec_ids))
+    by_id = {r["cid"]: r for r in conn.execute(
+        "SELECT c.id AS cid, c.doc_id, c.page, c.label, c.text FROM chunks c JOIN documents d ON d.id = c.doc_id "
+        f"WHERE c.id IN ({marks}){where}", [*vec_ids, *args]).fetchall()}
+    shown = {r["cid"] for r in rows}
+    for rank, cid in enumerate(i for i in vec_ids if i in by_id):
+        row = by_id[cid]
+        hit = hits.setdefault(row["doc_id"], DocHit(row["doc_id"]))
+        hit.rrf += 1 / (60 + rank)
+        if cid not in shown:
+            hit.matches += 1
+            if len(hit.snippets) < SNIPPETS_PER_DOC:
+                hit.snippets.append({"page": row["page"], "label": row["label"],
+                                     "text": row["text"][:220].replace("\n", " ")})
+    return sorted(hits.values(), key=lambda h: (not h.title_match, -h.rrf))

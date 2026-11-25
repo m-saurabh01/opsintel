@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from ehelp import embeddings
+
 CITATION_RE = re.compile(r"\[E(\d+)\]")
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for", "from", "how", "i", "if", "in",
@@ -53,6 +55,26 @@ def keywords(question: str) -> list[str]:
     return list(dict.fromkeys(words))[:10]
 
 
+def fuse_chunks(conn: sqlite3.Connection, rows, vec_ids: list[int], category: str | None) -> list:
+    """Reciprocal-rank fusion of BM25 rows and vector-ranked chunk ids."""
+    scores: dict[int, float] = {}
+    for rank, row in enumerate(rows):
+        scores[row["id"]] = scores.get(row["id"], 0) + 1 / (60 + rank)
+    for rank, cid in enumerate(vec_ids):
+        scores[cid] = scores.get(cid, 0) + 1 / (60 + rank)
+    by_id = {r["id"]: r for r in rows}
+    missing = [i for i in scores if i not in by_id]
+    if missing:
+        marks = ",".join("?" * len(missing))
+        extra = conn.execute(
+            "SELECT c.id, c.doc_id, c.page, c.label, c.text, d.title FROM chunks c JOIN documents d ON d.id = c.doc_id "
+            f"WHERE c.id IN ({marks})"
+            + (" AND d.category_id = (SELECT id FROM categories WHERE slug = ?)" if category else ""),
+            (*missing, *([category] if category else []))).fetchall()
+        by_id.update({r["id"]: r for r in extra})
+    return [by_id[i] for i in sorted(scores, key=scores.get, reverse=True) if i in by_id]
+
+
 def retrieve(conn: sqlite3.Connection, question: str, top_k: int, max_chars: int,
              category: str | None = None) -> list[dict]:
     words = keywords(question)
@@ -66,6 +88,9 @@ def retrieve(conn: sqlite3.Connection, question: str, top_k: int, max_chars: int
         + (" AND d.category_id = (SELECT id FROM categories WHERE slug = ?)" if category else "")
         + " ORDER BY bm25(chunks_fts) LIMIT ?",
         (match, *([category] if category else []), top_k * 4)).fetchall()
+    vec_ids = embeddings.semantic_search(conn, question, top_k * 4)
+    if vec_ids:
+        rows = fuse_chunks(conn, rows, vec_ids, category)
     evidence, remaining, per_doc = [], max_chars, {}
     for row in rows:
         if len(evidence) >= top_k or remaining <= 0:

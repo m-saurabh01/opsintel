@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 
@@ -21,6 +21,7 @@ from ehelp.auth import User, current_user, require_admin
 from ehelp.config import Config, load_config
 from ehelp.db import DEFAULT_SETTINGS, connect, get_settings, init_db, tags_of, transaction
 from ehelp.indexing import VIDEO_EXTS, Indexer, mime_for, slugify
+from ehelp import embeddings
 from ehelp.parsers.registry import ParserRegistry
 from ehelp.search import MARK_CLOSE, MARK_OPEN, search_documents, tokens_of  # noqa: F401
 from ehelp.cache import CACHE_API_DEFAULT, CACHE_SEARCH, CACHE_DOC_META, set_cache_headers, set_etag
@@ -69,11 +70,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     boot = connect(config.db_path)
     init_db(boot)
     index_conn = boot
-    indexer = Indexer(index_conn, ParserRegistry(config.libreoffice_path))
+    indexer = Indexer(index_conn, ParserRegistry(config.libreoffice_path, ocr_enabled=config.ocr_enabled,
+                                               tesseract_path=config.tesseract_path))
     index_lock = threading.Lock()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        if embeddings.enabled():
+            threading.Thread(target=embeddings.backfill, args=(connect(config.db_path),), daemon=True).start()
         yield
         indexer.close()
         boot.close()

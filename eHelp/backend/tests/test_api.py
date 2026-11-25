@@ -158,3 +158,17 @@ def test_ai_mode_toggle_and_daily_limit(client, upload, monkeypatch):
     assert client.get("/api/ai/status").json()["remaining"] == 0
     client.put("/api/admin/settings", headers=ADMIN, json={"ai_daily_limit": "0"})
     assert client.post("/api/ai/ask", json=body).status_code == 200
+
+
+def test_hybrid_search_finds_semantic_match(client, upload, monkeypatch):
+    from ehelp import embeddings
+
+    def fake_embed(texts, prefix):  # "engine"/"turbine" share one axis, everything else another
+        return [[1.0, 0.0] if any(w in t.lower() for w in ("engine", "turbine")) else [0.0, 1.0] for t in texts]
+
+    monkeypatch.setenv("EHELP_EMBED_ENABLED", "1")
+    monkeypatch.setattr(embeddings, "_embed", fake_embed)
+    upload("turbine.docx", make_docx("Turbine blade overhaul procedure"))
+    upload("canteen.docx", make_docx("Canteen menu for the week"))
+    res = client.get("/api/search", params={"q": "engine repair"}).json()
+    assert [i["document"]["filename"] for i in res["items"]] == ["turbine.docx"]

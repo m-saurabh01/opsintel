@@ -23,13 +23,14 @@ def build(name: str, kwargs: dict) -> Parser:
 
 
 class ParserRegistry:
-    def __init__(self, libreoffice_path: str = "", timeout_s: float = 120, ocr_enabled: bool = False):
+    def __init__(self, libreoffice_path: str = "", timeout_s: float = 120, ocr_enabled: bool = False,
+                 tesseract_path: str = ""):
         soffice = find_libreoffice(libreoffice_path)
         xlsx = XlsxParser(LINES, CHARS)
         self._by_ext: dict[str, Parser | None] = {
             "csv": DelimitedParser(",", LINES, CHARS),
             "tsv": DelimitedParser("\t", LINES, CHARS),
-            "pdf": PdfParser(CHARS, ocr_enabled, ""),
+            "pdf": PdfParser(CHARS, ocr_enabled, tesseract_path),
             "docx": DocxParser(CHARS),
             "doc": LegacyDocParser(soffice, timeout_s, CHARS) if soffice else None,
             "ppt": LegacyPptParser(soffice, timeout_s, CHARS) if soffice else None,

@@ -3,6 +3,7 @@ import re
 import sqlite3
 from pathlib import Path
 
+from ehelp import embeddings
 from ehelp.db import transaction
 from ehelp.parsers.base import ParseError, ParseResult
 from ehelp.parsers.registry import ParserRegistry
@@ -78,6 +79,11 @@ class Indexer:
             self.conn.execute(
                 "UPDATE documents SET index_status = ?, index_error = ?, page_count = coalesce(?, page_count) "
                 "WHERE id = ?", (status, error, page_count, doc_id))
+        if embeddings.enabled() and chunks:
+            try:
+                embeddings.embed_missing(self.conn, doc_id)
+            except Exception as exc:  # noqa: BLE001 - keyword search still works; startup backfill retries
+                log.warning("embedding failed for document %s: %s", doc_id, exc)
 
     def close(self) -> None:
         self.sandbox.close()
